@@ -23,18 +23,26 @@ package io.pixelsdb.pixels.sink.source.engine;
 
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.RecordChangeEvent;
-import io.pixelsdb.pixels.common.metadata.SchemaTableName;
+import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.conversion.debezium.DebeziumRecordUtil;
+import io.pixelsdb.pixels.sink.conversion.debezium.source.DebeziumSourceAdapter;
+import io.pixelsdb.pixels.sink.event.RowChangeEvent;
+import io.pixelsdb.pixels.sink.exception.SinkException;
+import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
+import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.processor.StoppableProcessor;
-import io.pixelsdb.pixels.sink.processor.TransactionProcessor;
-import io.pixelsdb.pixels.sink.provider.TableProviderAndProcessorPipelineManager;
-import io.pixelsdb.pixels.sink.provider.TransactionEventEngineProvider;
+import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumStructAdapter;
+import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumSourceAdapterSelector;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * @package: io.pixelsdb.pixels.source
@@ -44,23 +52,34 @@ import java.util.List;
  */
 public class PixelsDebeziumConsumer implements DebeziumEngine.ChangeConsumer<RecordChangeEvent<SourceRecord>>, StoppableProcessor
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PixelsDebeziumConsumer.class);
+
+    public enum RecordType
+    {
+        ROW,
+        TRANSACTION,
+        TOMBSTONE,
+        UNKNOWN_CONTROL
+    }
+
     private final String checkTransactionTopic;
-    private final TransactionEventEngineProvider<SourceRecord> transactionEventProvider = TransactionEventEngineProvider.INSTANCE;
-    private final TableProviderAndProcessorPipelineManager<SourceRecord> tableProvidersManagerImpl = new TableProviderAndProcessorPipelineManager<>();
-    private final TransactionProcessor processor = new TransactionProcessor(transactionEventProvider);
-    private final Thread transactionProviderThread;
-    private final Thread transactionProcessorThread;
+    private final DebeziumSourceAdapter connectorAdapter;
+    private final DebeziumStructAdapter structAdapter;
+    private final TransactionPipeline transactionPipeline = new TransactionPipeline();
+    private final TablePipelineManager tablePipelineManager = new TablePipelineManager();
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
-    PixelsSinkConfig pixelsSinkConfig = PixelsSinkConfigFactory.getInstance();
+    private final PixelsSinkConfig pixelsSinkConfig = PixelsSinkConfigFactory.getInstance();
 
     public PixelsDebeziumConsumer()
     {
         this.checkTransactionTopic = pixelsSinkConfig.getDebeziumTopicPrefix() + ".transaction";
-        this.transactionProviderThread = new Thread(this.transactionEventProvider, "transaction-adapter");
-        this.transactionProcessorThread = new Thread(this.processor, "transaction-processor");
+        this.connectorAdapter = DebeziumSourceAdapterSelector.configured();
+        this.structAdapter = new DebeziumStructAdapter(connectorAdapter);
+    }
 
-        this.transactionProcessorThread.start();
-        this.transactionProviderThread.start();
+    public void start()
+    {
+        transactionPipeline.start();
     }
 
 
@@ -78,12 +97,22 @@ public class PixelsDebeziumConsumer implements DebeziumEngine.ChangeConsumer<Rec
                 }
 
                 metricsFacade.recordDebeziumEvent();
-                if (isTransactionEvent(sourceRecord))
+                RecordType recordType = classify(sourceRecord, checkTransactionTopic);
+                logSourceRecord(sourceRecord, recordType);
+                try
                 {
-                    handleTransactionSourceRecord(sourceRecord);
-                } else
+                    switch (recordType)
+                    {
+                        case ROW -> handleRowChangeSourceRecord(sourceRecord);
+                        case TRANSACTION -> handleTransactionSourceRecord(sourceRecord);
+                        case TOMBSTONE, UNKNOWN_CONTROL ->
+                                LOGGER.debug("Skipping Debezium {} event from topic {}",
+                                        recordType, sourceRecord.topic());
+                    }
+                } catch (RuntimeException e)
                 {
-                    handleRowChangeSourceRecord(sourceRecord);
+                    LOGGER.warn("Skipping invalid Debezium {} event from topic {}: {}",
+                            recordType, sourceRecord.topic(), e.getMessage());
                 }
             } finally
             {
@@ -96,34 +125,117 @@ public class PixelsDebeziumConsumer implements DebeziumEngine.ChangeConsumer<Rec
 
     private void handleTransactionSourceRecord(SourceRecord sourceRecord) throws InterruptedException
     {
-        transactionEventProvider.putTransRawEvent(sourceRecord);
+        SinkProto.TransactionMetadata transaction = structAdapter.toTransactionMetadata(sourceRecord);
+        metricsFacade.recordSerdTxChange();
+        transactionPipeline.publish(transaction);
     }
 
     private void handleRowChangeSourceRecord(SourceRecord sourceRecord)
     {
-        Struct value = (Struct) sourceRecord.value();
-        if (value == null)
+        try
         {
-            return; // Delete Record, We will handle it in next record
+            RowChangeEvent event = structAdapter.toRowEvent(sourceRecord);
+            metricsFacade.recordSerdRowChange();
+            tablePipelineManager.route(event);
+        } catch (SinkException e)
+        {
+            throw new IllegalArgumentException("Failed to convert Debezium row event", e);
         }
-        Object sourceObject = value.get("source");
-        Struct source = (Struct) sourceObject;
-        String schemaName = source.get("db").toString();
-        String tableName = source.get("table").toString();
-        SchemaTableName schemaTableName = new SchemaTableName(schemaName, tableName);
-        tableProvidersManagerImpl.routeRecord(schemaTableName, sourceRecord);
     }
 
-    private boolean isTransactionEvent(SourceRecord sourceRecord)
+    public static RecordType classify(SourceRecord sourceRecord, String transactionTopic)
     {
-        return checkTransactionTopic.equals(sourceRecord.topic());
+        if (sourceRecord == null || sourceRecord.value() == null)
+        {
+            return RecordType.TOMBSTONE;
+        }
+        if (!(sourceRecord.value() instanceof Struct value))
+        {
+            return RecordType.UNKNOWN_CONTROL;
+        }
+
+        if (transactionTopic != null && transactionTopic.equals(sourceRecord.topic()))
+        {
+            String status = DebeziumRecordUtil.getStringSafely(value, "status");
+            String id = DebeziumRecordUtil.getStringSafely(value, "id");
+            return (status.equals("BEGIN") || status.equals("END")) && !id.isBlank()
+                    ? RecordType.TRANSACTION
+                    : RecordType.UNKNOWN_CONTROL;
+        }
+
+        return isRowChange(value) ? RecordType.ROW : RecordType.UNKNOWN_CONTROL;
+    }
+
+    private static boolean isRowChange(Struct value)
+    {
+        String op = DebeziumRecordUtil.getStringSafely(value, "op").toLowerCase(Locale.ROOT);
+        if (!(op.equals("c") || op.equals("u") || op.equals("d") || op.equals("r")))
+        {
+            return false;
+        }
+
+        Object sourceObject = DebeziumRecordUtil.getFieldSafely(value, "source");
+        if (!(sourceObject instanceof Struct source) ||
+                DebeziumRecordUtil.getStringSafely(source, "db").isBlank() ||
+                DebeziumRecordUtil.getStringSafely(source, "table").isBlank())
+        {
+            return false;
+        }
+
+        Object before = DebeziumRecordUtil.getFieldSafely(value, "before");
+        Object after = DebeziumRecordUtil.getFieldSafely(value, "after");
+        return switch (op)
+        {
+            case "c", "r" -> after instanceof Struct;
+            case "u" -> before instanceof Struct && after instanceof Struct;
+            case "d" -> before instanceof Struct;
+            default -> false;
+        };
+    }
+
+    private void logSourceRecord(SourceRecord record, RecordType recordType)
+    {
+        if (!LOGGER.isDebugEnabled())
+        {
+            return;
+        }
+        Struct value = record.value() instanceof Struct struct ? struct : null;
+        Struct source = value == null ? null :
+                asStruct(DebeziumRecordUtil.getFieldSafely(value, "source"));
+        Struct transaction = value == null ? null :
+                asStruct(DebeziumRecordUtil.getFieldSafely(value, "transaction"));
+        String rawTransactionId = recordType == RecordType.TRANSACTION
+                ? DebeziumRecordUtil.getStringSafely(value, "id")
+                : DebeziumRecordUtil.getStringSafely(transaction, "id");
+        String canonicalTransactionId =
+                connectorAdapter.normalizeTransactionId(rawTransactionId);
+
+        LOGGER.debug("Debezium SourceRecord topic={}, sourcePartition={}, sourceOffset={}, " +
+                        "keySchema={}, key={}, valueSchema={}, category={}, transaction.id={}, " +
+                        "source.gtid={}, source.file={}, source.pos={}, source.row={}",
+                record.topic(), record.sourcePartition(), record.sourceOffset(),
+                schemaName(record.keySchema()), record.key(), schemaName(record.valueSchema()),
+                recordType, canonicalTransactionId,
+                DebeziumRecordUtil.getStringSafely(source, "gtid"),
+                DebeziumRecordUtil.getStringSafely(source, "file"),
+                DebeziumRecordUtil.getStringSafely(source, "pos"),
+                DebeziumRecordUtil.getStringSafely(source, "row"));
+    }
+
+    private static Struct asStruct(Object value)
+    {
+        return value instanceof Struct struct ? struct : null;
+    }
+
+    private static String schemaName(org.apache.kafka.connect.data.Schema schema)
+    {
+        return schema == null ? "" : String.valueOf(schema.name());
     }
 
     @Override
     public void stopProcessor()
     {
-        transactionProviderThread.interrupt();
-        processor.stopProcessor();
-        transactionProcessorThread.interrupt();
+        tablePipelineManager.close();
+        transactionPipeline.close();
     }
 }

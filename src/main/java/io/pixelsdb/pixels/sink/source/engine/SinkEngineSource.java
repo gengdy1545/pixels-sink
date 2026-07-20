@@ -46,6 +46,7 @@ public class SinkEngineSource implements SinkSource
 
     public void start()
     {
+        consumer.start();
         Properties debeziumProps = PixelsSinkConfigFactory.getInstance()
                 .getConfig().extractPropertiesByPrefix("debezium.", true);
 

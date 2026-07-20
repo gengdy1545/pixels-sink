@@ -125,12 +125,6 @@ public class TransactionProxy
         }
     }
 
-    @Deprecated
-    public TransContext getNewTransContext()
-    {
-        return getNewTransContext("None");
-    }
-
     public TransContext getNewTransContext(String txId)
     {
         beginCount.incrementAndGet();

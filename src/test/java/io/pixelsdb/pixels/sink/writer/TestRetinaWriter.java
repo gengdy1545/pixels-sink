@@ -33,7 +33,7 @@ import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
-import io.pixelsdb.pixels.sink.util.DateUtil;
+import io.pixelsdb.pixels.sink.util.TestDateUtil;
 import io.pixelsdb.pixels.sink.writer.retina.RetinaServiceProxy;
 import io.pixelsdb.pixels.sink.writer.retina.TransactionProxy;
 import org.junit.jupiter.api.Assertions;
@@ -228,7 +228,7 @@ public class TestRetinaWriter
             for (int sb = 0; sb < samllBatchCount; sb++)
             {
                 ++b;
-                TransContext ctx = manager.getNewTransContext();
+                TransContext ctx = manager.getNewTransContext("batch-" + b);
                 long timeStamp = ctx.getTimestamp();
 
                 RetinaProto.TableUpdateData.Builder tableUpdateDataBuilder =
@@ -361,7 +361,7 @@ public class TestRetinaWriter
                     // 轮询选择客户端
                     RetinaServiceProxy writer = writers.get(batchIndex % clientCount);
 
-                    TransContext ctx = manager.getNewTransContext();
+                    TransContext ctx = manager.getNewTransContext("batch-" + batchIndex);
                     long timeStamp = ctx.getTimestamp();
 
                     List<RetinaProto.TableUpdateData> tableUpdateData = new ArrayList<>();
@@ -386,14 +386,14 @@ public class TestRetinaWriter
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(userID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Float.toString(oldBalance))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(isBlocked))).build())
-                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(DateUtil.convertDebeziumTimestampToString(oldTs))).build());
+                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(oldTs))).build());
 
                         SinkProto.RowValue.Builder afterValueBuilder = SinkProto.RowValue.newBuilder()
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(accountID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(userID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Float.toString(newBalance))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(isBlocked))).build())
-                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(DateUtil.convertDebeziumTimestampToString(newTs))).build());
+                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(newTs))).build());
 
                         SinkProto.RowRecord.Builder rowBuilder = SinkProto.RowRecord.newBuilder()
                                 .setOp(SinkProto.OperationType.UPDATE)
@@ -415,7 +415,7 @@ public class TestRetinaWriter
                                 .addColValues(ByteString.copyFromUtf8(Integer.toString(userID)))
                                 .addColValues(ByteString.copyFromUtf8(Float.toString(newBalance)))
                                 .addColValues(ByteString.copyFromUtf8(Integer.toString(isBlocked)))
-                                .addColValues(ByteString.copyFromUtf8(DateUtil.convertDebeziumTimestampToString(newTs)))
+                        .addColValues(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(newTs)))
                                 .addIndexKeys(rowChangeEvent.getAfterKey());
                         tableUpdateDataBuilder.addInsertData(insertDataBuilder.build());
                     }
@@ -481,7 +481,7 @@ public class TestRetinaWriter
 
         for (int b = 0; b < batchCount; b++)
         {
-            TransContext ctx = manager.getNewTransContext();
+            TransContext ctx = manager.getNewTransContext("batch-" + b);
             long timeStamp = ctx.getTimestamp();
 
             List<RetinaProto.TableUpdateData> tableUpdateData = new ArrayList<>();
@@ -506,7 +506,7 @@ public class TestRetinaWriter
                 cols[1] = Integer.toString(userID).getBytes(StandardCharsets.UTF_8);
                 cols[2] = Float.toString(balance).getBytes(StandardCharsets.UTF_8);
                 cols[3] = Integer.toString(isBlocked).getBytes(StandardCharsets.UTF_8);
-                cols[4] = DateUtil.convertDebeziumTimestampToString(ts).getBytes(StandardCharsets.UTF_8);
+                cols[4] = TestDateUtil.convertDebeziumTimestampToString(ts).getBytes(StandardCharsets.UTF_8);
                 // cols[4] = Long.toString(ts).getBytes(StandardCharsets.UTF_8);
                 // after row
                 SinkProto.RowValue.Builder afterValueBuilder = SinkProto.RowValue.newBuilder()

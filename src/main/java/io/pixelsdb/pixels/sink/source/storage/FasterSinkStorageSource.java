@@ -31,7 +31,7 @@ import java.nio.ByteBuffer;
 
 /**
  * @package: io.pixelsdb.pixels.sink.source
- * @className: LegacySinkStorageSource
+ * @className: FasterSinkStorageSource
  * @author: AntiO2
  * @date: 2025/10/5 11:43
  */

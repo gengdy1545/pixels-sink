@@ -21,7 +21,10 @@
 package io.pixelsdb.pixels.sink.config.factory;
 
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
+import io.apicurio.registry.serde.SerdeConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 
 import java.util.Properties;
 
@@ -40,7 +43,19 @@ public class RowRecordKafkaPropFactory implements KafkaPropFactory
     public Properties createKafkaProperties(PixelsSinkConfig config)
     {
         Properties kafkaProperties = getCommonKafkaProperties(config);
-        kafkaProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, config.getValueDeserializer());
+        kafkaProperties.put(PixelsSinkConstants.ROW_RECORD_CONVERTER_CLASS, config.getValueDeserializer());
+        if (config.getDebeziumConnectorClass() != null &&
+                !config.getDebeziumConnectorClass().isBlank())
+        {
+            kafkaProperties.put(
+                    PixelsSinkConstants.DEBEZIUM_CONNECTOR_CLASS,
+                    config.getDebeziumConnectorClass());
+        }
+        if (config.getRegistryUrl() != null && !config.getRegistryUrl().isBlank())
+        {
+            kafkaProperties.put(SerdeConfig.REGISTRY_URL, config.getRegistryUrl());
+        }
+        kafkaProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         kafkaProperties.put(ConsumerConfig.GROUP_ID_CONFIG, config.getGroupId());
 
         kafkaProperties.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000");

@@ -38,8 +38,15 @@ public class TransactionProcessor implements Runnable, StoppableProcessor
 
     public TransactionProcessor(TransactionEventProvider transactionEventProvider)
     {
+        this(transactionEventProvider, PixelsSinkWriterFactory.getWriter());
+    }
+
+    public TransactionProcessor(
+            TransactionEventProvider transactionEventProvider,
+            PixelsSinkWriter sinkWriter)
+    {
         this.transactionEventProvider = transactionEventProvider;
-        this.sinkWriter = PixelsSinkWriterFactory.getWriter();
+        this.sinkWriter = sinkWriter;
     }
 
     @Override
@@ -47,7 +54,7 @@ public class TransactionProcessor implements Runnable, StoppableProcessor
     {
         while (running.get())
         {
-            SinkProto.TransactionMetadata transaction = transactionEventProvider.getTransaction();
+            SinkProto.TransactionMetadata transaction = transactionEventProvider.takeTransaction();
             if (transaction == null)
             {
                 LOGGER.warn("Received null transaction");

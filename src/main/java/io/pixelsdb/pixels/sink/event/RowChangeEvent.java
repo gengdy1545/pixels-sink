@@ -30,8 +30,6 @@ import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.metadata.TableMetadata;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
-import io.pixelsdb.pixels.sink.util.MetricsFacade;
-import io.prometheus.client.Summary;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -47,7 +45,6 @@ public class RowChangeEvent
 
     @Getter
     private final SinkProto.RowRecord rowRecord;
-    private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
     @Getter
     private final TypeDescription schema;
     /**
@@ -60,7 +57,6 @@ public class RowChangeEvent
     private String topic;
     @Getter
     private TableMetadata tableMetadata = null;
-    private Summary.Timer latencyTimer;
     private Map<String, SinkProto.ColumnValue> beforeValueMap;
     private Map<String, SinkProto.ColumnValue> afterValueMap;
     @Getter
@@ -78,20 +74,31 @@ public class RowChangeEvent
 
     public RowChangeEvent(SinkProto.RowRecord rowRecord) throws SinkException
     {
-        this.rowRecord = rowRecord;
         TableMetadataRegistry tableMetadataRegistry = TableMetadataRegistry.Instance();
-        this.schema = tableMetadataRegistry.getTypeDescription(getSchemaName(), getTable());
+        this.rowRecord = rowRecord;
+        this.schema = tableMetadataRegistry.getTypeDescription(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable());
+        this.tableMetadata = tableMetadataRegistry.getMetadata(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable());
         init();
         initIndexKey();
     }
 
     public RowChangeEvent(SinkProto.RowRecord rowRecord, TypeDescription schema) throws SinkException
     {
+        this(rowRecord, schema, TableMetadataRegistry.Instance().getMetadata(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable()));
+    }
+
+    public RowChangeEvent(
+            SinkProto.RowRecord rowRecord,
+            TypeDescription schema,
+            TableMetadata tableMetadata) throws SinkException
+    {
         this.rowRecord = rowRecord;
         this.schema = schema;
-
+        this.tableMetadata = tableMetadata;
         init();
-        // initIndexKey();
     }
 
     protected static int getBucketFromIndexKey(IndexProto.IndexKey indexKey)
@@ -106,8 +113,7 @@ public class RowChangeEvent
 
     private void init() throws SinkException
     {
-        TableMetadataRegistry tableMetadataRegistry = TableMetadataRegistry.Instance();
-        this.tableId = tableMetadataRegistry.getTableId(getSchemaName(), getTable());
+        this.tableId = tableMetadata == null ? 0 : tableMetadata.getTableId();
         this.schemaTableName = new SchemaTableName(getSchemaName(), getTable());
 
         initColumnValueMap();
@@ -141,9 +147,10 @@ public class RowChangeEvent
             return;
         }
 
-        this.tableMetadata = TableMetadataRegistry.Instance().getMetadata(
-                this.rowRecord.getSource().getDb(),
-                this.rowRecord.getSource().getTable());
+        if (this.tableMetadata == null)
+        {
+            throw new SinkException("Row change table metadata is missing");
+        }
 
         if (!this.tableMetadata.hasPrimaryIndex())
         {
@@ -258,16 +265,14 @@ public class RowChangeEvent
 
     public String getFullTableName()
     {
-        // TODO(AntiO2): In postgresql, data collection uses schemaName as prefix, while MySQL uses DB as prefix.
-        return rowRecord.getSource().getSchema() + "." + rowRecord.getSource().getTable();
-        // return getSchemaName() + "." + getTable();
+        SinkProto.SourceInfo source = rowRecord.getSource();
+        String namespace = source.getSchema().isBlank() ? source.getDb() : source.getSchema();
+        return namespace + "." + source.getTable();
     }
 
-    // TODO(AntiO2): How to Map Schema Names Between Source DB and Pixels
     public String getSchemaName()
     {
         return rowRecord.getSource().getDb();
-        // return rowRecord.getSource().getSchema();
     }
 
     public boolean hasError()
@@ -308,20 +313,6 @@ public class RowChangeEvent
     public boolean hasAfterData()
     {
         return isUpdate() || isInsert() || isSnapshot();
-    }
-
-    public void startLatencyTimer()
-    {
-        this.latencyTimer = metricsFacade.startProcessLatencyTimer();
-    }
-
-    public void endLatencyTimer()
-    {
-        if (latencyTimer != null)
-        {
-            this.latencyTimer.close();
-        }
-
     }
 
     public SinkProto.OperationType getOp()

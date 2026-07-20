@@ -20,8 +20,11 @@
 
 package io.pixelsdb.pixels.sink.config.factory;
 
+import io.apicurio.registry.serde.SerdeConfig;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 
 import java.util.Properties;
 
@@ -33,7 +36,20 @@ public class TransactionKafkaPropFactory implements KafkaPropFactory
     public Properties createKafkaProperties(PixelsSinkConfig config)
     {
         Properties kafkaProperties = getCommonKafkaProperties(config);
-        kafkaProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, config.getTransactionTopicValueDeserializer());
+        kafkaProperties.put(PixelsSinkConstants.TRANSACTION_CONVERTER_CLASS,
+                config.getTransactionTopicValueDeserializer());
+        if (config.getDebeziumConnectorClass() != null &&
+                !config.getDebeziumConnectorClass().isBlank())
+        {
+            kafkaProperties.put(
+                    PixelsSinkConstants.DEBEZIUM_CONNECTOR_CLASS,
+                    config.getDebeziumConnectorClass());
+        }
+        if (config.getRegistryUrl() != null && !config.getRegistryUrl().isBlank())
+        {
+            kafkaProperties.put(SerdeConfig.REGISTRY_URL, config.getRegistryUrl());
+        }
+        kafkaProperties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         kafkaProperties.put(ConsumerConfig.GROUP_ID_CONFIG, config.getTransactionTopicGroupId() + "-" + config.getGroupId());
         return kafkaProperties;
     }

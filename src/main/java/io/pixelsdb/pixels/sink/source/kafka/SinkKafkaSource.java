@@ -25,8 +25,8 @@ import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.factory.KafkaPropFactorySelector;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.processor.MonitorThreadManager;
-import io.pixelsdb.pixels.sink.processor.TopicProcessor;
-import io.pixelsdb.pixels.sink.processor.TransactionProcessor;
+import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
+import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.source.SinkSource;
 
 import java.util.Properties;
@@ -34,7 +34,9 @@ import java.util.Properties;
 public class SinkKafkaSource implements SinkSource
 {
     private MonitorThreadManager manager;
-    private volatile boolean running = true;
+    private TablePipelineManager tablePipelineManager;
+    private TransactionPipeline transactionPipeline;
+    private volatile boolean running;
 
     @Override
     public void start()
@@ -45,23 +47,43 @@ public class SinkKafkaSource implements SinkSource
         Properties transactionKafkaProperties = kafkaPropFactorySelector
                 .getFactory(PixelsSinkConstants.TRANSACTION_KAFKA_PROP_FACTORY)
                 .createKafkaProperties(pixelsSinkConfig);
-        TransactionProcessor transactionProcessor = null; // TODO: new TransactionProcessor();
+        String transactionTopic = pixelsSinkConfig.getTopicPrefix() + "." +
+                pixelsSinkConfig.getTransactionTopicSuffix();
+        tablePipelineManager = new TablePipelineManager();
+        transactionPipeline = new TransactionPipeline();
+        KafkaTransactionSource transactionSource =
+                new KafkaTransactionSource(
+                        transactionKafkaProperties, transactionTopic, transactionPipeline);
 
         Properties topicKafkaProperties = kafkaPropFactorySelector
                 .getFactory(PixelsSinkConstants.ROW_RECORD_KAFKA_PROP_FACTORY)
                 .createKafkaProperties(pixelsSinkConfig);
-        TopicProcessor topicMonitor = new TopicProcessor(pixelsSinkConfig, topicKafkaProperties);
+        TopicProcessor topicMonitor = new TopicProcessor(
+                pixelsSinkConfig, topicKafkaProperties, tablePipelineManager);
 
+        transactionPipeline.start();
         manager = new MonitorThreadManager();
-        manager.startMonitor(transactionProcessor);
+        manager.startMonitor(transactionSource);
         manager.startMonitor(topicMonitor);
+        running = true;
     }
 
 
     @Override
     public void stopProcessor()
     {
-        manager.shutdown();
+        if (manager != null)
+        {
+            manager.shutdown();
+        }
+        if (transactionPipeline != null)
+        {
+            transactionPipeline.close();
+        }
+        if (tablePipelineManager != null)
+        {
+            tablePipelineManager.close();
+        }
         running = false;
     }
 

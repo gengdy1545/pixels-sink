@@ -24,13 +24,17 @@ import io.pixelsdb.pixels.common.physical.PhysicalReader;
 import io.pixelsdb.pixels.core.utils.Pair;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.conversion.sinkproto.RowRecordConverter;
+import io.pixelsdb.pixels.sink.conversion.sinkproto.TransactionMetadataConverter;
+import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
-import io.pixelsdb.pixels.sink.processor.TransactionProcessor;
+import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
+import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.provider.ProtoType;
-import io.pixelsdb.pixels.sink.provider.TableProviderAndProcessorPipelineManager;
-import io.pixelsdb.pixels.sink.provider.TransactionEventStorageLoopProvider;
 import io.pixelsdb.pixels.sink.source.SinkSource;
 import io.pixelsdb.pixels.sink.util.EtcdFileRegistry;
+import io.pixelsdb.pixels.sink.util.DataTransform;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import io.pixelsdb.pixels.sink.util.rateLimiter.FlushRateLimiter;
 import io.pixelsdb.pixels.sink.util.rateLimiter.FlushRateLimiterFactory;
@@ -62,13 +66,13 @@ public abstract class AbstractSinkStorageSource implements SinkSource
     protected final Map<Integer, BlockingQueue<Pair<CompletableFuture<ByteBuffer>, Integer>>> queueMap = new ConcurrentHashMap<>();
     protected final boolean storageLoopEnabled;
     protected final FlushRateLimiter sourceRateLimiter;
-    private final TableMetadataRegistry tableMetadataRegistry = TableMetadataRegistry.Instance();
+    protected final TablePipelineManager tablePipelineManager = new TablePipelineManager();
+    protected final TransactionPipeline transactionPipeline = new TransactionPipeline();
+    protected final RowRecordConverter rowRecordConverter;
+    protected final TransactionMetadataConverter transactionMetadataConverter =
+            new TransactionMetadataConverter();
+    protected final boolean freshnessTimestamp;
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
-    private final TableProviderAndProcessorPipelineManager<Pair<ByteBuffer, Integer>> tablePipelineManager = new TableProviderAndProcessorPipelineManager<>();
-    protected TransactionEventStorageLoopProvider<Pair<ByteBuffer, Integer>> transactionEventProvider;
-    protected TransactionProcessor transactionProcessor;
-    protected Thread transactionProviderThread;
-    protected Thread transactionProcessorThread;
     protected int loopId = 0;
     protected List<PhysicalReader> readers = new ArrayList<>();
 
@@ -80,12 +84,8 @@ public abstract class AbstractSinkStorageSource implements SinkSource
         this.etcdFileRegistry = new EtcdFileRegistry(topic, baseDir);
         this.files = this.etcdFileRegistry.listAllFiles();
         this.storageLoopEnabled = pixelsSinkConfig.isSinkStorageLoop();
-
-        this.transactionEventProvider = new TransactionEventStorageLoopProvider<>();
-        this.transactionProviderThread = new Thread(transactionEventProvider);
-
-        this.transactionProcessor = new TransactionProcessor(transactionEventProvider);
-        this.transactionProcessorThread = new Thread(transactionProcessor, "debezium-processor");
+        this.rowRecordConverter = new RowRecordConverter(TableMetadataRegistry.Instance());
+        this.freshnessTimestamp = pixelsSinkConfig.isSinkMonitorFreshnessTimestamp();
         this.sourceRateLimiter = FlushRateLimiterFactory.getNewInstance();
     }
 
@@ -125,11 +125,22 @@ public abstract class AbstractSinkStorageSource implements SinkSource
                 LOGGER.warn("Failed to close reader", e);
             }
         }
+        tablePipelineManager.close();
+        transactionPipeline.close();
     }
 
     protected void handleTransactionSourceRecord(ByteBuffer record, Integer loopId)
     {
-        transactionEventProvider.putTransRawEvent(new Pair<>(record, loopId));
+        try
+        {
+            SinkProto.TransactionMetadata metadata =
+                    transactionMetadataConverter.convert(record, loopId);
+            metricsFacade.recordSerdTxChange();
+            transactionPipeline.publish(metadata);
+        } catch (Exception e)
+        {
+            LOGGER.warn("Failed to convert storage transaction metadata", e);
+        }
     }
 
     protected void consumeQueue(int key, BlockingQueue<Pair<CompletableFuture<ByteBuffer>, Integer>> queue, ProtoType protoType)
@@ -173,7 +184,28 @@ public abstract class AbstractSinkStorageSource implements SinkSource
 
     protected void handleRowChangeSourceRecord(int key, ByteBuffer dataBuffer, int loopId)
     {
-        tablePipelineManager.routeRecord(key, new Pair<>(dataBuffer, loopId));
+        try
+        {
+            SinkProto.RowRecord.Builder builder =
+                    rowRecordConverter.parse(dataBuffer).toBuilder();
+            if (freshnessTimestamp)
+            {
+                DataTransform.updateRecordTimestamp(builder, System.currentTimeMillis() * 1000);
+            }
+            if (builder.hasTransaction())
+            {
+                SinkProto.TransactionInfo transaction = builder.getTransaction();
+                builder.setTransaction(transaction.toBuilder()
+                        .setId(transaction.getId() + "_" + loopId)
+                        .build());
+            }
+            RowChangeEvent event = rowRecordConverter.convert(builder.build());
+            metricsFacade.recordSerdRowChange();
+            tablePipelineManager.route(event);
+        } catch (Exception e)
+        {
+            LOGGER.warn("Failed to convert storage row record", e);
+        }
     }
 
     @Override
@@ -186,8 +218,7 @@ public abstract class AbstractSinkStorageSource implements SinkSource
     public void stopProcessor()
     {
         running.set(false);
-        transactionProviderThread.interrupt();
-        transactionProcessorThread.interrupt();
-        transactionProcessor.stopProcessor();
+        tablePipelineManager.close();
+        transactionPipeline.close();
     }
 }

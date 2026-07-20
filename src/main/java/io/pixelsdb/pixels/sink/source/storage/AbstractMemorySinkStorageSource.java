@@ -50,8 +50,7 @@ public abstract class AbstractMemorySinkStorageSource extends AbstractSinkStorag
     public void start()
     {
         this.running.set(true);
-        this.transactionProcessorThread.start();
-        this.transactionProviderThread.start();
+        this.transactionPipeline.start();
         try
         {
             /* =====================================================

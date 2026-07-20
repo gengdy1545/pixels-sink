@@ -21,7 +21,6 @@
 package io.pixelsdb.pixels.sink.util;
 
 import com.google.protobuf.ByteString;
-import io.pixelsdb.pixels.retina.RetinaProto;
 import io.pixelsdb.pixels.sink.SinkProto;
 
 import java.nio.ByteBuffer;
@@ -35,44 +34,6 @@ public class DataTransform
         byte[] bytes = ByteBuffer.allocate(Long.BYTES).putLong(value).array();
         return ByteString.copyFrom(bytes);
     }
-
-    private static int byteStringToInt(ByteString bytes)
-    {
-        return ByteBuffer.wrap(bytes.toByteArray()).getInt();
-    }
-
-    @Deprecated
-    public static void updateTimeStamp(List<RetinaProto.TableUpdateData.Builder> updateData, long txStartTime)
-    {
-        ByteString timestampBytes = longToByteString(txStartTime);
-
-        for (RetinaProto.TableUpdateData.Builder tableUpdateDataBuilder : updateData)
-        {
-            int insertDataCount = tableUpdateDataBuilder.getInsertDataCount();
-            for (int i = 0; i < insertDataCount; i++)
-            {
-                RetinaProto.InsertData.Builder insertBuilder = tableUpdateDataBuilder.getInsertDataBuilder(i);
-                int colValueCount = insertBuilder.getColValuesCount();
-                if (colValueCount > 0)
-                {
-                    insertBuilder.setColValues(colValueCount - 1, timestampBytes);
-                }
-            }
-
-            int updateDataCount = tableUpdateDataBuilder.getUpdateDataCount();
-            for (int i = 0; i < updateDataCount; i++)
-            {
-                RetinaProto.UpdateData.Builder updateBuilder = tableUpdateDataBuilder.getUpdateDataBuilder(i);
-
-                int colValueCount = updateBuilder.getColValuesCount();
-                if (colValueCount > 0)
-                {
-                    updateBuilder.setColValues(colValueCount - 1, timestampBytes);
-                }
-            }
-        }
-    }
-
 
     public static List<SinkProto.RowRecord> updateRecordTimestamp(List<SinkProto.RowRecord> records, long timestamp)
     {
@@ -128,22 +89,6 @@ public class DataTransform
                 break;
         }
     }
-
-    public static void transIdToBigint(SinkProto.RowRecord.Builder recordBuilder)
-    {
-
-        if (recordBuilder.hasAfter())
-        {
-            SinkProto.RowValue.Builder afterBuilder = recordBuilder.getAfterBuilder();
-            afterBuilder.setValues(0, getTimestampColumn(byteStringToInt(afterBuilder.getValues(0).getValue())));
-        }
-        if (recordBuilder.hasBefore())
-        {
-            SinkProto.RowValue.Builder beforeBuilder = recordBuilder.getBeforeBuilder();
-            beforeBuilder.setValues(0, getTimestampColumn(byteStringToInt(beforeBuilder.getValues(0).getValue())));
-        }
-    }
-
 
     private static SinkProto.RowRecord updateRecordTimestamp(SinkProto.RowRecord.Builder recordBuilder, SinkProto.ColumnValue timestampColumn)
     {

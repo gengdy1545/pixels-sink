@@ -21,7 +21,8 @@
 package io.pixelsdb.pixels.sink.config;
 
 import io.pixelsdb.pixels.common.utils.ConfigFactory;
-import io.pixelsdb.pixels.sink.event.deserializer.RowChangeEventJsonDeserializer;
+import io.pixelsdb.pixels.sink.conversion.debezium.RowChangeEventJsonDeserializer;
+import io.pixelsdb.pixels.sink.conversion.debezium.TransactionMetadataJsonDeserializer;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkMode;
 import io.pixelsdb.pixels.sink.writer.retina.RetinaServiceProxy;
 import io.pixelsdb.pixels.sink.writer.retina.TransactionMode;
@@ -117,9 +118,6 @@ public class PixelsSinkConfig
     @ConfigKey(value = "sink.rpc.enable", defaultValue = "false")
     private boolean rpcEnable;
 
-    @ConfigKey(value = "sink.rpc.mock.delay", defaultValue = "0")
-    private int mockRpcDelay;
-
     @ConfigKey(value = "sink.trans.batch.size", defaultValue = "100")
     private int transBatchSize;
 
@@ -135,6 +133,9 @@ public class PixelsSinkConfig
     private String topicPrefix;
     @ConfigKey("debezium.topic.prefix")
     private String debeziumTopicPrefix;
+
+    @ConfigKey(value = "debezium.connector.class", defaultValue = "")
+    private String debeziumConnectorClass;
 
     @ConfigKey("consumer.capture_database")
     private String captureDatabase;
@@ -161,7 +162,7 @@ public class PixelsSinkConfig
     private String transactionTopicSuffix;
 
     @ConfigKey(value = "transaction.topic.value.deserializer",
-            defaultClass = RowChangeEventJsonDeserializer.class)
+            defaultClass = TransactionMetadataJsonDeserializer.class)
     private String transactionTopicValueDeserializer;
 
     @ConfigKey(value = "transaction.topic.group_id",

@@ -22,7 +22,7 @@ package io.pixelsdb.pixels.sink.processor;
 
 
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
-import io.pixelsdb.pixels.sink.provider.TableEventProvider;
+import io.pixelsdb.pixels.sink.provider.RowEventProvider;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
@@ -42,15 +42,20 @@ public class TableProcessor implements StoppableProcessor, Runnable
     private static final Logger LOGGER = LoggerFactory.getLogger(TableProcessor.class);
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final PixelsSinkWriter pixelsSinkWriter;
-    private final TableEventProvider<?> tableEventProvider;
+    private final RowEventProvider rowEventProvider;
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
     private Thread processorThread;
     private boolean tableAdded = false;
 
-    public TableProcessor(TableEventProvider<?> tableEventProvider)
+    public TableProcessor(RowEventProvider rowEventProvider)
     {
-        this.pixelsSinkWriter = PixelsSinkWriterFactory.getWriter();
-        this.tableEventProvider = tableEventProvider;
+        this(rowEventProvider, PixelsSinkWriterFactory.getWriter());
+    }
+
+    public TableProcessor(RowEventProvider rowEventProvider, PixelsSinkWriter pixelsSinkWriter)
+    {
+        this.pixelsSinkWriter = pixelsSinkWriter;
+        this.rowEventProvider = rowEventProvider;
     }
 
     @Override
@@ -64,7 +69,7 @@ public class TableProcessor implements StoppableProcessor, Runnable
     {
         while (running.get())
         {
-            RowChangeEvent event = tableEventProvider.getRowChangeEvent();
+            RowChangeEvent event = rowEventProvider.takeRowChangeEvent();
             if (event == null)
             {
                 continue;
@@ -79,6 +84,9 @@ public class TableProcessor implements StoppableProcessor, Runnable
     {
         LOGGER.info("Stopping transaction monitor");
         running.set(false);
-        processorThread.interrupt();
+        if (processorThread != null)
+        {
+            processorThread.interrupt();
+        }
     }
 }

@@ -15,7 +15,7 @@ Pixels Sink uses a multi-stage pipeline. Each stage communicates via producer/co
 - Receives a `ConfigFactory` directly and builds the same sink pipeline.
 
 **Source**
-The source stage pulls events and forwards raw payloads to providers.
+The source stage owns input lifecycle and invokes the configured converter.
 
 **Source Inputs**
 | Source Type | Description | Related Config |
@@ -25,76 +25,54 @@ The source stage pulls events and forwards raw payloads to providers.
 | `storage` | Reads from Pixels storage files containing serialized sink proto records | `sink.proto.*`, `sink.storage.loop` |
 
 **Source Outputs**
-- The source does not parse events. It forwards raw records to providers.
+- Kafka, Engine, and Storage sources publish only canonical
+  `RowChangeEvent` or `SinkProto.TransactionMetadata` objects.
+- Protocol conversion is implemented in `conversion`; providers never receive
+  Kafka bytes, Engine `SourceRecord`, or Storage `ByteBuffer`.
 
 **Provider**
-Providers convert source records into Pixels events.
+Providers are bounded canonical-event channels. They provide backpressure,
+ordered delivery, and lifecycle management without knowing the source
+protocol.
 
 ```mermaid
 classDiagram
     direction TB
 
-    class EventProvider~SOURCE_RECORD_T, TARGET_RECORD_T~ {
-        +run()
+    class BlockingEventProvider~T~ {
+        +publish(T event)
+        +take()
         +close()
-        +processLoop()
-        +convertToTargetRecord()
-        +recordSerdEvent()
-        +putRawEvent()
-        +getRawEvent()
-        +pollRawEvent()
-        +putTargetEvent()
-        +getTargetEvent()
     }
 
-    class TableEventProvider~SOURCE_RECORD_T~ {
+    class RowEventProvider {
     }
-    class TableEventEngineProvider~T~ {
+    class TransactionEventProvider {
     }
-    class TableEventKafkaProvider~T~ {
+    class TablePipeline {
+        +publish(RowChangeEvent)
     }
-    class TableEventStorageProvider~T~ {
+    class TransactionPipeline {
+        +publish(TransactionMetadata)
     }
-
-    class TransactionEventProvider~SOURCE_RECORD_T~ {
-    }
-    class TransactionEventEngineProvider~T~ {
-    }
-    class TransactionEventKafkaProvider~T~ {
-    }
-    class TransactionEventStorageProvider~T~ {
+    class TablePipelineManager {
+        +route(RowChangeEvent)
     }
 
-    EventProvider <|-- TableEventProvider
-    EventProvider <|-- TransactionEventProvider
-
-    TableEventProvider <|-- TableEventEngineProvider
-    TableEventProvider <|-- TableEventKafkaProvider
-    TableEventProvider <|-- TableEventStorageProvider
-
-    TransactionEventProvider <|-- TransactionEventEngineProvider
-    TransactionEventProvider <|-- TransactionEventKafkaProvider
-    TransactionEventProvider <|-- TransactionEventStorageProvider
+    BlockingEventProvider <|-- RowEventProvider
+    BlockingEventProvider <|-- TransactionEventProvider
+    TablePipelineManager --> TablePipeline
+    TablePipeline --> RowEventProvider
+    TransactionPipeline --> TransactionEventProvider
 
 ```
-
-Example mappings:
-
-| Provider | Source Type | Target Type |
-| --- | --- | --- |
-| `TableEventEngineProvider` | Debezium Struct | `RowChangeEvent` |
-| `TableEventKafkaProvider` | Kafka topic | `RowChangeEvent` |
-| `TableEventStorageProvider` | Proto bytes | `RowChangeEvent` |
-| `TransactionEventEngineProvider` | Debezium Struct | `SinkProto.TransactionMetadata` |
-| `TransactionEventKafkaProvider` | Kafka topic | `SinkProto.TransactionMetadata` |
-| `TransactionEventStorageProvider` | Proto bytes | `SinkProto.TransactionMetadata` |
 
 **Processor**
 Processors pull events from providers and write to the sink writers.
 
-- `TableProcessor` instances are created by `TableProviderAndProcessorPipelineManager`.
+- `TableProcessor` instances are created by `TablePipelineManager`.
 - There is typically one `TableProcessor` per table to maintain per-table ordering.
-- `TransactionProcessor` is a singleton.
+- `TransactionPipeline` owns the transaction provider and `TransactionProcessor`.
 
 **Writer**
 Writers implement `PixelsSinkWriter`:

@@ -90,7 +90,6 @@ public class RetinaWriter implements PixelsSinkWriter
             }
 
             metricsFacade.recordRowChange(event.getTable(), event.getOp());
-            event.startLatencyTimer();
             if (event.getTransaction() == null || event.getTransaction().getId().isEmpty())
             {
                 handleNonTxEvent(event);

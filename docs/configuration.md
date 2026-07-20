@@ -20,6 +20,8 @@ Values are loaded by `PixelsSinkConfig` and mapped from keys in the properties f
 - `engine` reads CDC logs directly from Debezium Engine. 
 - `storage` reads CDC logs from files dumped by `sink.proto` output; schema reference: [sink.proto](https://github.com/pixelsdb/pixels/blob/master/proto/sink.proto). 
 - `kafka` reads from a set of Kafka topics; this mode is deprecated and not actively tested.
+- Engine and Kafka records are normalized to the canonical `SinkProto` contract before reaching writers.
+- Storage row records use canonical `SinkProto`; `SourceInfo.schema` may be empty for MySQL.
 
 ### Notes on `sink.mode`
 
@@ -51,8 +53,12 @@ Notes on `sink.trans.mode`:
 | Key | Default | Notes |
 | --- | --- | --- |
 | `debezium.name` | none | Engine name. |
-| `debezium.connector.class` | none | Connector class, e.g. PostgreSQL connector. |
+| `debezium.connector.class` | none | Connector class, e.g. PostgreSQL or MySQL connector. |
 | `debezium.*` | none | Standard Debezium engine properties. |
+
+See `conf/pixels-sink.mysql.properties` for a TDSQL MySQL CDC example.
+
+The Debezium Connector reads the database Binlog or WAL. The local `conversion.debezium` package only converts envelopes already emitted by Debezium.
 
 ### Retina Sink
 
@@ -108,12 +114,12 @@ Kafka source is deprecated.
 | `group.id` | required | Consumer group id. |
 | `auto.offset.reset` | none | Standard Kafka consumer property. |
 | `key.deserializer` | `org.apache.kafka.common.serialization.StringDeserializer` | Kafka key deserializer. |
-| `value.deserializer` | `io.pixelsdb.pixels.sink.event.deserializer.RowChangeEventJsonDeserializer` | Kafka value deserializer for row events. |
+| `value.deserializer` | `io.pixelsdb.pixels.sink.conversion.debezium.RowChangeEventJsonDeserializer` | Kafka value deserializer for row events. |
 | `topic.prefix` | required | Topic prefix for table events. |
 | `consumer.capture_database` | required | Database name used to build topic names. |
 | `consumer.include_tables` | empty | Comma-separated table list, empty means all. |
 | `transaction.topic.suffix` | `transaction` | Suffix appended to transaction topics. |
-| `transaction.topic.value.deserializer` | `io.pixelsdb.pixels.sink.event.deserializer.RowChangeEventJsonDeserializer` | Deserializer for transaction messages. |
+| `transaction.topic.value.deserializer` | `io.pixelsdb.pixels.sink.conversion.debezium.TransactionMetadataJsonDeserializer` | Deserializer for transaction messages. |
 | `transaction.topic.group_id` | `transaction_consumer` | Consumer group for transaction topic. |
 | `sink.registry.url` | required | Avro Schema registry endpoint. |
 
@@ -124,7 +130,6 @@ Kafka source is deprecated.
 | `sink.remote.host` | `localhost` | Sink server host. |
 | `sink.remote.port` | `9090` | Sink server port. |
 | `sink.rpc.enable` | `false` | Enable RPC simulation (for development). |
-| `sink.rpc.mock.delay` | `0` | Artificial delay in ms. |
 
 **Monitoring and Metrics**
 

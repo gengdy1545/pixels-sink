@@ -191,8 +191,4 @@ public class EtcdFileRegistry
         LOGGER.info("Marked file [{}] as completed", fileName);
     }
 
-    public void cleanData()
-    {
-        etcd.deleteByPrefix(topicPrefix());
-    }
 }

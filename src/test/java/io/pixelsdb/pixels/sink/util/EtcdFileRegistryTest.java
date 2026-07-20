@@ -19,6 +19,7 @@
 package io.pixelsdb.pixels.sink.util;
 
 
+import io.pixelsdb.pixels.common.utils.EtcdUtil;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,6 @@ public class EtcdFileRegistryTest
         {
             LOGGER.info(file);
         }
-        etcdFileRegistry.cleanData();
+        EtcdUtil.Instance().deleteByPrefix("/sink/proto/registry/test");
     }
 }

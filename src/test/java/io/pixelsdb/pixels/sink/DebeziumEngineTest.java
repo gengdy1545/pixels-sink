@@ -24,6 +24,7 @@ import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.RecordChangeEvent;
 import io.debezium.engine.format.ChangeEventFormat;
 import org.apache.kafka.connect.source.SourceRecord;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -40,6 +41,7 @@ import java.util.concurrent.Executors;
 public class DebeziumEngineTest
 {
     @Test
+    @Disabled("Manual PostgreSQL integration test; requires an external database")
     public void testPostgresCDC()
     {
         final Properties props = new Properties();
