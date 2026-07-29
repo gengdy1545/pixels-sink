@@ -18,12 +18,13 @@
 package io.pixelsdb.pixels.sink.concurrent;
 
 import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.TestUtils;
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.writer.retina.RetinaWriter;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -43,6 +44,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("integration")
 class RetinaWriterTest
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(RetinaWriterTest.class);
@@ -52,9 +54,9 @@ class RetinaWriterTest
     private CountDownLatch latch;
 
     @BeforeEach
-    void setUp() throws IOException
+    void setUp() throws Exception
     {
-        PixelsSinkConfigFactory.initialize("");
+        TestConfig.initializeIntegrationConfig();
 
         testExecutor = TestUtils.synchronousExecutor();
         dispatchedEvents = Collections.synchronizedList(new ArrayList<>());
@@ -155,16 +157,12 @@ class RetinaWriterTest
         coordinator.writeRow(event);
         TimeUnit.MILLISECONDS.sleep(10);
         assertEquals(1, dispatchedEvents.size());
-        PixelsSinkConfigFactory.reset();
     }
 
     @ParameterizedTest
     @ValueSource(ints = {1, 3, 9, 16})
     void shouldHandleConcurrentEvents(int threadCount) throws SinkException, IOException, InterruptedException
     {
-        PixelsSinkConfigFactory.reset();
-        PixelsSinkConfigFactory.initialize("");
-
         latch = new CountDownLatch(threadCount);
         coordinator.writeTrans(buildBeginTx("tx5"));
         // concurrently send event
@@ -192,6 +190,5 @@ class RetinaWriterTest
         LOGGER.debug("Thread Count: {} DispatchedEvents size: {}", threadCount, dispatchedEvents.size());
         LOGGER.debug("Thread Count: {} DispatchedEvents size: {}", threadCount, dispatchedEvents.size());
         assertEquals(threadCount, dispatchedEvents.size());
-        PixelsSinkConfigFactory.reset();
     }
 }

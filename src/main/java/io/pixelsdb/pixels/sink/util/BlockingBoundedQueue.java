@@ -18,38 +18,43 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-package io.pixelsdb.pixels.sink.provider;
-
-import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
+package io.pixelsdb.pixels.sink.util;
 
 import java.io.Closeable;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Bounded channel for already converted sink events.
+ * A bounded blocking queue with an explicit shutdown signal.
  *
- * <p>The provider deliberately does not know how an event was read or
- * converted. Source adapters publish canonical objects and processors consume
- * them from this channel.</p>
+ * <p>Closing the queue discards pending values and wakes a blocked consumer.
+ * This is intended for pipeline shutdown, not graceful draining.</p>
  */
-public class BlockingEventProvider<T> implements Closeable
+public final class BlockingBoundedQueue<T> implements Closeable
 {
     private static final Object POISON_PILL = new Object();
 
-    private final BlockingQueue<Object> queue =
-            new LinkedBlockingQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE);
+    private final BlockingQueue<Object> queue;
     private volatile boolean closed;
 
-    public void publish(T event)
+    public BlockingBoundedQueue(int capacity)
     {
-        if (event == null || closed)
+        if (capacity <= 0)
+        {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        this.queue = new LinkedBlockingQueue<>(capacity);
+    }
+
+    public void put(T value)
+    {
+        if (value == null || closed)
         {
             return;
         }
         try
         {
-            queue.put(event);
+            queue.put(value);
         } catch (InterruptedException e)
         {
             Thread.currentThread().interrupt();

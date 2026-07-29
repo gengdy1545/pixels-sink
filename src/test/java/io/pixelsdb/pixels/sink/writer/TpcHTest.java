@@ -29,12 +29,14 @@ import io.pixelsdb.pixels.common.transaction.TransService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 
-public class TpcHTest
+@Tag("integration")
+class TpcHTest
 {
 
     static Logger logger = Logger.getLogger(TpcHTest.class.getName());

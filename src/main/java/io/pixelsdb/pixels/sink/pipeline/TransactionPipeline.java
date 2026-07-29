@@ -21,23 +21,24 @@
 package io.pixelsdb.pixels.sink.pipeline;
 
 import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.processor.TransactionProcessor;
-import io.pixelsdb.pixels.sink.provider.TransactionEventProvider;
+import io.pixelsdb.pixels.sink.util.BlockingBoundedQueue;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 
 public final class TransactionPipeline implements AutoCloseable
 {
-    private final TransactionEventProvider provider;
+    private final BlockingBoundedQueue<SinkProto.TransactionMetadata> eventQueue;
     private final PixelsSinkWriter writer;
     private final TransactionProcessor processor;
     private final Thread processorThread;
 
     public TransactionPipeline()
     {
-        this.provider = new TransactionEventProvider();
+        this.eventQueue = new BlockingBoundedQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE);
         this.writer = PixelsSinkWriterFactory.getWriter();
-        this.processor = new TransactionProcessor(provider, writer);
+        this.processor = new TransactionProcessor(eventQueue, writer);
         this.processorThread = new Thread(processor, "transaction-processor");
     }
 
@@ -51,14 +52,14 @@ public final class TransactionPipeline implements AutoCloseable
 
     public void publish(SinkProto.TransactionMetadata transaction)
     {
-        provider.publishTransaction(transaction);
+        eventQueue.put(transaction);
     }
 
     @Override
     public void close()
     {
         processor.stopProcessor();
-        provider.close();
+        eventQueue.close();
         processorThread.interrupt();
     }
 }

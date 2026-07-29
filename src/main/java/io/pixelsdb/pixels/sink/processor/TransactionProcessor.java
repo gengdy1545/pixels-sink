@@ -21,7 +21,7 @@
 package io.pixelsdb.pixels.sink.processor;
 
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.pixelsdb.pixels.sink.provider.TransactionEventProvider;
+import io.pixelsdb.pixels.sink.util.BlockingBoundedQueue;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 import org.slf4j.Logger;
@@ -34,18 +34,19 @@ public class TransactionProcessor implements Runnable, StoppableProcessor
     private static final Logger LOGGER = LoggerFactory.getLogger(TransactionProcessor.class);
     private final PixelsSinkWriter sinkWriter;
     private final AtomicBoolean running = new AtomicBoolean(true);
-    private final TransactionEventProvider transactionEventProvider;
+    private final BlockingBoundedQueue<SinkProto.TransactionMetadata> eventQueue;
 
-    public TransactionProcessor(TransactionEventProvider transactionEventProvider)
+    public TransactionProcessor(
+            BlockingBoundedQueue<SinkProto.TransactionMetadata> eventQueue)
     {
-        this(transactionEventProvider, PixelsSinkWriterFactory.getWriter());
+        this(eventQueue, PixelsSinkWriterFactory.getWriter());
     }
 
     public TransactionProcessor(
-            TransactionEventProvider transactionEventProvider,
+            BlockingBoundedQueue<SinkProto.TransactionMetadata> eventQueue,
             PixelsSinkWriter sinkWriter)
     {
-        this.transactionEventProvider = transactionEventProvider;
+        this.eventQueue = eventQueue;
         this.sinkWriter = sinkWriter;
     }
 
@@ -54,7 +55,7 @@ public class TransactionProcessor implements Runnable, StoppableProcessor
     {
         while (running.get())
         {
-            SinkProto.TransactionMetadata transaction = transactionEventProvider.takeTransaction();
+            SinkProto.TransactionMetadata transaction = eventQueue.take();
             if (transaction == null)
             {
                 LOGGER.warn("Received null transaction");

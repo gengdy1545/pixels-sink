@@ -20,35 +20,38 @@
 
 package io.pixelsdb.pixels.sink.writer.retina;
 
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.TestConfig;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
-public class TableWriterProxyTest
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+
+@Tag("integration")
+class TableWriterProxyTest
 {
-    private static final Logger LOGGER = LoggerFactory.getLogger(TableWriterProxyTest.class);
-
-
-    String tableName = "test";
+    private static final String TABLE_NAME = "test";
 
     @BeforeAll
-    public static void init() throws IOException
+    static void init() throws Exception
     {
-        PixelsSinkConfigFactory.initialize("/home/ubuntu/pixels-sink/conf/pixels-sink.aws.properties");
+        TestConfig.initializeIntegrationConfig();
     }
 
     @Test
-    public void testGetSameTableWriter() throws IOException
+    void shouldReuseTableWriter() throws IOException
     {
         TableWriterProxy tableWriterProxy = TableWriterProxy.getInstance();
+        TableWriter first = tableWriterProxy.getTableWriter(TABLE_NAME, 0, 0);
 
         for (int i = 0; i < 10; i++)
         {
-            TableWriter tableWriter = tableWriterProxy.getTableWriter(tableName, 0, 0);
+            TableWriter tableWriter = tableWriterProxy.getTableWriter(TABLE_NAME, 0, 0);
+            assertNotNull(tableWriter);
+            assertSame(first, tableWriter);
         }
     }
 }

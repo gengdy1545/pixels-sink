@@ -22,7 +22,7 @@ import io.apicurio.registry.rest.client.RegistryClientFactory;
 import io.apicurio.registry.serde.SerdeConfig;
 import io.apicurio.registry.serde.avro.AvroKafkaDeserializer;
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.conversion.debezium.RowChangeEventAvroDeserializer;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
@@ -33,30 +33,31 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
+import java.util.UUID;
 
-public class AvroConsumerTest
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@Tag("integration")
+class AvroConsumerTest
 {
-
-    private static final String TOPIC = "oltp_server.pixels_realtime_crud.customer";
-    private static final String REGISTRY_URL = "http://localhost:8080/apis/registry/v2";
-    private static final String BOOTSTRAP_SERVERS = "localhost:29092";
-    private static final String GROUP_ID = "avro-consumer-test-group-1";
+    private static final int MAX_POLL_CYCLES = 100;
 
     private static KafkaConsumer<String, RowChangeEvent> getRowChangeEventAvroKafkaConsumer()
     {
         Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID);
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, RowChangeEventAvroDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(SerdeConfig.REGISTRY_URL, REGISTRY_URL);
+        props.put(SerdeConfig.REGISTRY_URL, registryUrl());
         props.put(SerdeConfig.AUTO_REGISTER_ARTIFACT, "true");
         props.put(SerdeConfig.CHECK_PERIOD_MS, "30000");
 
@@ -76,12 +77,12 @@ public class AvroConsumerTest
     private static KafkaConsumer<String, GenericRecord> getStringGenericRecordKafkaConsumer()
     {
         Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID);
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, AvroKafkaDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(SerdeConfig.REGISTRY_URL, REGISTRY_URL);
+        props.put(SerdeConfig.REGISTRY_URL, registryUrl());
         props.put(SerdeConfig.AUTO_REGISTER_ARTIFACT, "true");
         props.put(SerdeConfig.CHECK_PERIOD_MS, "30000");
 
@@ -132,23 +133,26 @@ public class AvroConsumerTest
     }
 
     @Test
-    public void avroConsumerTest()
+    void shouldConsumeGenericAvroRecords()
     {
         KafkaConsumer<String, GenericRecord> consumer = getStringGenericRecordKafkaConsumer();
-        consumer.subscribe(Collections.singletonList(TOPIC));
+        consumer.subscribe(Collections.singletonList(topic()));
 
-        RegistryClient registryClient = RegistryClientFactory.create(REGISTRY_URL);
+        RegistryClient registryClient = RegistryClientFactory.create(registryUrl());
 
         try
         {
-            while (true)
+            int recordCount = 0;
+            for (int i = 0; i < MAX_POLL_CYCLES; ++i)
             {
                 ConsumerRecords<String, GenericRecord> records = consumer.poll(Duration.ofMillis(100));
                 for (ConsumerRecord<String, GenericRecord> record : records)
                 {
                     processRecord(record, registryClient);
+                    recordCount++;
                 }
             }
+            assertTrue(recordCount > 0, "No Avro records were consumed");
         } finally
         {
             consumer.close();
@@ -156,25 +160,57 @@ public class AvroConsumerTest
     }
 
     @Test
-    public void sinkConsumerTest() throws IOException
+    void shouldConsumeRowChangeEvents() throws Exception
     {
-        PixelsSinkConfigFactory.initialize("/home/anti/work/pixels-sink/src/main/resources/pixels-sink.local.properties");
+        TestConfig.initializeIntegrationConfig();
         KafkaConsumer<String, RowChangeEvent> consumer = getRowChangeEventAvroKafkaConsumer();
-        consumer.subscribe(Collections.singletonList(TOPIC));
+        consumer.subscribe(Collections.singletonList(topic()));
 
         try
         {
-            while (true)
+            int recordCount = 0;
+            for (int i = 0; i < MAX_POLL_CYCLES; ++i)
             {
                 ConsumerRecords<String, RowChangeEvent> records = consumer.poll(Duration.ofMillis(100));
                 for (ConsumerRecord<String, RowChangeEvent> record : records)
                 {
                     processRecord(record.value());
+                    recordCount++;
                 }
             }
+            assertTrue(recordCount > 0, "No row-change records were consumed");
         } finally
         {
             consumer.close();
         }
+    }
+
+    private static String topic()
+    {
+        return requiredProperty("pixels.sink.test.topic");
+    }
+
+    private static String registryUrl()
+    {
+        return requiredProperty("pixels.sink.test.registry.url");
+    }
+
+    private static String bootstrapServers()
+    {
+        return requiredProperty("pixels.sink.test.bootstrap.servers");
+    }
+
+    private static String groupId()
+    {
+        return System.getProperty(
+                "pixels.sink.test.group.id", "pixels-sink-test-" + UUID.randomUUID());
+    }
+
+    private static String requiredProperty(String key)
+    {
+        String value = System.getProperty(key);
+        Assumptions.assumeTrue(value != null && !value.isBlank(),
+                "Set -D" + key + " to run this integration test");
+        return value;
     }
 }

@@ -38,9 +38,24 @@
         <dep.opencsv.version>5.8</dep.opencsv.version>
         <dep.lombok.version>1.18.42</dep.lombok.version>
         <dep.debezium.version>3.2.3.Final</dep.debezium.version>
+        <dep.jackson.version>2.16.2</dep.jackson.version>
         <plugin.dockerfile-maven.version>1.4.13</plugin.dockerfile-maven.version>
         <trino.version>440</trino.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- hive-jdbc drags in jackson-databind 2.6.5, which lacks NativeImageUtil
+                 required by jackson-module-afterburner 2.16.2 from kafka connect-json -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${dep.jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -278,6 +293,16 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <skipTests>false</skipTests>
+                    <excludedGroups>integration</excludedGroups>
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED
+                        --add-exports=java.base/sun.nio.ch=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.2.0</version>
                 <executions>
@@ -346,4 +371,24 @@
         </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>integration-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>false</skipTests>
+                            <excludedGroups combine.self="override"></excludedGroups>
+                            <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED
+                                --add-exports=java.base/sun.nio.ch=ALL-UNNAMED</argLine>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

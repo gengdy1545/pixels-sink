@@ -27,28 +27,23 @@ The source stage owns input lifecycle and invokes the configured converter.
 **Source Outputs**
 - Kafka, Engine, and Storage sources publish only canonical
   `RowChangeEvent` or `SinkProto.TransactionMetadata` objects.
-- Protocol conversion is implemented in `conversion`; providers never receive
+- Protocol conversion is implemented in `conversion`; pipeline queues never receive
   Kafka bytes, Engine `SourceRecord`, or Storage `ByteBuffer`.
 
-**Provider**
-Providers are bounded canonical-event channels. They provide backpressure,
-ordered delivery, and lifecycle management without knowing the source
-protocol.
+**Pipeline Queue**
+Pipelines own bounded canonical-event queues. The queue provides backpressure,
+ordered delivery, and lifecycle management without knowing the source protocol.
 
 ```mermaid
 classDiagram
     direction TB
 
-    class BlockingEventProvider~T~ {
-        +publish(T event)
+    class BlockingBoundedQueue~T~ {
+        +put(T value)
         +take()
         +close()
     }
 
-    class RowEventProvider {
-    }
-    class TransactionEventProvider {
-    }
     class TablePipeline {
         +publish(RowChangeEvent)
     }
@@ -59,20 +54,18 @@ classDiagram
         +route(RowChangeEvent)
     }
 
-    BlockingEventProvider <|-- RowEventProvider
-    BlockingEventProvider <|-- TransactionEventProvider
     TablePipelineManager --> TablePipeline
-    TablePipeline --> RowEventProvider
-    TransactionPipeline --> TransactionEventProvider
+    TablePipeline --> BlockingBoundedQueue
+    TransactionPipeline --> BlockingBoundedQueue
 
 ```
 
 **Processor**
-Processors pull events from providers and write to the sink writers.
+Processors pull events from pipeline queues and write to the sink writers.
 
 - `TableProcessor` instances are created by `TablePipelineManager`.
 - There is typically one `TableProcessor` per table to maintain per-table ordering.
-- `TransactionPipeline` owns the transaction provider and `TransactionProcessor`.
+- `TransactionPipeline` owns the transaction queue and `TransactionProcessor`.
 
 **Writer**
 Writers implement `PixelsSinkWriter`:

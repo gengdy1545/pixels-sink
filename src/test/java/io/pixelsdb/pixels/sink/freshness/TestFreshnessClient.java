@@ -21,21 +21,27 @@
 package io.pixelsdb.pixels.sink.freshness;
 
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 // We extend FreshnessClient to access the protected queryAndCalculateFreshness method
-public class TestFreshnessClient
+@Tag("integration")
+class TestFreshnessClient
 {
 
     // Mocks for JDBC dependencies
@@ -49,44 +55,53 @@ public class TestFreshnessClient
     private FreshnessClient client; // The instance of the client to test
 
     @BeforeAll
-    public static void setUp() throws IOException
+    static void setUp() throws Exception
     {
-        // Initialization as per the user's template
-        PixelsSinkConfigFactory.initialize("/home/ubuntu/disk1/opt/pixels-sink/conf/pixels-sink.hudi.properties");
+        TestConfig.initializeIntegrationConfig();
     }
 
     @Test
-    public void testFreshnessCalculationSuccess() throws Exception
+    void testFreshnessCalculationSuccess() throws Exception
     {
 
         FreshnessClient freshnessClient = FreshnessClient.getInstance();
         freshnessClient.addMonitoredTable("customer");
-        freshnessClient.start();
-        while (true)
+        try
         {
+            freshnessClient.start();
+            Thread.sleep(1000);
+        } finally
+        {
+            freshnessClient.stop();
         }
     }
 
     @Test
-    public void testSnapshotTs() throws SQLException
+    void testSnapshotTs() throws SQLException
     {
         FreshnessClient freshnessClient = FreshnessClient.getInstance();
-        Connection connection = freshnessClient.createNewConnection(123456L);
-        String query = String.format("SELECT max(freshness_ts) FROM company");
-        Statement statement = connection.createStatement();
-        ResultSet resultSet = statement.executeQuery(query);
-        resultSet.next();
+        try (Connection connection = freshnessClient.createNewConnection(123456L);
+             Statement statement = connection.createStatement())
+        {
+            String query = "SELECT max(freshness_ts) FROM company";
+            try (ResultSet resultSet = statement.executeQuery(query))
+            {
+                assertTrue(resultSet.next());
+            }
+        }
     }
 
     @Test
-    public void testLoanTransQueryPerformance() throws SQLException
+    void testLoanTransQueryPerformance(@org.junit.jupiter.api.io.TempDir Path tempDir)
+            throws SQLException
     {
         FreshnessClient freshnessClient = FreshnessClient.getInstance();
         Connection connection = freshnessClient.createNewConnection(12345689100L);
         String query = "SELECT max(freshness_ts) FROM nation";
-        String csvFileName = "loantrans_query_results.csv";
-        int iterations = 1000;
-        try (PrintWriter writer = new PrintWriter(new FileWriter(csvFileName)))
+        Path csvFile = tempDir.resolve("loantrans_query_results.csv");
+        int iterations = Integer.getInteger("pixels.sink.test.iterations", 10);
+        try (PrintWriter writer = new PrintWriter(
+                Files.newBufferedWriter(csvFile, StandardCharsets.UTF_8)))
         {
 
             for (int i = 0; i < iterations; i++)
@@ -113,7 +128,7 @@ public class TestFreshnessClient
                 writer.printf("%d,%d,%d%n", startTime, maxFreshnessTs, durationMs);
                 writer.flush();
             }
-            System.out.println("Test completed. Results saved to: " + csvFileName);
+            System.out.println("Test completed. Results saved to: " + csvFile);
         } catch (IOException e)
         {
             e.printStackTrace();

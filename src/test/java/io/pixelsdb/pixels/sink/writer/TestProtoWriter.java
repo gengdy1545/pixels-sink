@@ -22,17 +22,22 @@ package io.pixelsdb.pixels.sink.writer;
 import com.google.protobuf.ByteString;
 import io.pixelsdb.pixels.common.physical.*;
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.writer.proto.ProtoWriter;
 import io.pixelsdb.pixels.storage.localfs.PhysicalLocalReader;
-import lombok.SneakyThrows;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * @package: io.pixelsdb.pixels.sink.writer
@@ -40,17 +45,10 @@ import java.nio.charset.StandardCharsets;
  * @author: AntiO2
  * @date: 2025/10/5 09:24
  */
-public class TestProtoWriter
+class TestProtoWriter
 {
-    public static String schemaName = "test";
-    public static String tableName = "ray";
-
-    @BeforeAll
-    public static void setUp() throws IOException
-    {
-        PixelsSinkConfigFactory.initialize("/home/pixels/projects/pixels-writer/src/main/resources/pixels-writer.local.properties");
-//        PixelsSinkConfigFactory.initialize("/home/ubuntu/pixels-writer/src/main/resources/pixels-writer.aws.properties");
-    }
+    private static final String SCHEMA_NAME = "test";
+    private static final String TABLE_NAME = "ray";
 
     private static SinkProto.RowRecord getRowRecord(int i)
     {
@@ -74,8 +72,8 @@ public class TestProtoWriter
                 .setAfter(afterValueBuilder)
                 .setSource(
                         SinkProto.SourceInfo.newBuilder()
-                                .setDb(schemaName)
-                                .setTable(tableName)
+                                .setDb(SCHEMA_NAME)
+                                .setTable(TABLE_NAME)
                                 .build()
                 );
         return builder.build();
@@ -90,77 +88,96 @@ public class TestProtoWriter
         return builder.build();
     }
 
-    @SneakyThrows
+    @Tag("integration")
     @Test
-    public void testWriteTransInfo()
+    void testWriteTransInfo() throws Exception
     {
-        ProtoWriter transWriter = new ProtoWriter();
-        int maxTx = 1000;
-
-        for (int i = 0; i < maxTx; i++)
+        TestConfig.initializeIntegrationConfig();
+        int maxTx = Integer.getInteger("pixels.sink.test.transactions", 10);
+        try (ProtoWriter transWriter = new ProtoWriter())
         {
-            transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.BEGIN));
-            transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.END));
-        }
-        transWriter.close();
-    }
-
-    @Test
-    public void testWriteFile() throws IOException
-    {
-        String path = "/home/pixels/projects/pixels-writer/tmp/write.dat";
-        PhysicalWriter writer = PhysicalWriterUtil.newPhysicalWriter(Storage.Scheme.file, path);
-
-        int writeNum = 3;
-
-        ByteBuffer buf = ByteBuffer.allocate(writeNum * Integer.BYTES);
-        for (int i = 0; i < 3; i++)
-        {
-            buf.putInt(i);
-        }
-        writer.append(buf);
-        writer.close();
-    }
-
-    @Test
-    public void testReadFile() throws IOException
-    {
-        String path = "/home/pixels/projects/pixels-writer/tmp/write.dat";
-        PhysicalLocalReader reader = (PhysicalLocalReader) PhysicalReaderUtil.newPhysicalReader(Storage.Scheme.file, path);
-
-        int writeNum = 12;
-        for (int i = 0; i < writeNum; i++)
-        {
-            reader.readLong(ByteOrder.BIG_ENDIAN);
-        }
-    }
-
-    @Test
-    public void testReadEmptyFile() throws IOException
-    {
-        String path = "/home/pixels/projects/pixels-writer/tmp/empty.dat";
-        PhysicalReader reader = PhysicalReaderUtil.newPhysicalReader(Storage.Scheme.file, path);
-
-        int v = reader.readInt(ByteOrder.BIG_ENDIAN);
-
-        return;
-    }
-
-    @Test
-    public void testWriteRowInfo() throws IOException
-    {
-        ProtoWriter transWriter = new ProtoWriter();
-        int maxTx = 10000000;
-        int rowCnt = 0;
-        for (int i = 0; i < maxTx; i++)
-        {
-            transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.BEGIN));
-            for (int j = i; j < 3; j++)
+            for (int i = 0; i < maxTx; i++)
             {
-                transWriter.write(getRowRecord(rowCnt++));
+                transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.BEGIN));
+                transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.END));
             }
-            transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.END));
         }
-        transWriter.close();
+    }
+
+    @Test
+    void testWriteFile(@TempDir Path tempDir) throws IOException
+    {
+        Path path = tempDir.resolve("write.dat");
+        try (PhysicalWriter writer = PhysicalWriterUtil.newPhysicalWriter(
+                Storage.Scheme.file, path.toString()))
+        {
+            int writeNum = 3;
+            ByteBuffer buf = ByteBuffer.allocate(writeNum * Integer.BYTES);
+            for (int i = 0; i < writeNum; i++)
+            {
+                buf.putInt(i);
+            }
+            assertEquals(0, writer.append(buf));
+        }
+
+        assertEquals(3L * Integer.BYTES, Files.size(path));
+    }
+
+    @Test
+    void testReadFile(@TempDir Path tempDir) throws IOException
+    {
+        Path path = tempDir.resolve("write.dat");
+        try (PhysicalWriter writer = PhysicalWriterUtil.newPhysicalWriter(
+                Storage.Scheme.file, path.toString()))
+        {
+            ByteBuffer buffer = ByteBuffer.allocate(3 * Long.BYTES);
+            buffer.putLong(11L).putLong(22L).putLong(33L);
+            writer.append(buffer);
+        }
+
+        try (PhysicalLocalReader reader = (PhysicalLocalReader) PhysicalReaderUtil
+                .newPhysicalReader(Storage.Scheme.file, path.toString()))
+        {
+            assertEquals(3L * Long.BYTES, reader.getFileLength());
+            assertEquals(11L, reader.readLong(ByteOrder.BIG_ENDIAN));
+            assertEquals(22L, reader.readLong(ByteOrder.BIG_ENDIAN));
+            assertEquals(33L, reader.readLong(ByteOrder.BIG_ENDIAN));
+        }
+    }
+
+    @Test
+    void testReadEmptyFile(@TempDir Path tempDir) throws IOException
+    {
+        Path path = tempDir.resolve("empty.dat");
+        Files.createFile(path);
+
+        try (PhysicalReader reader = PhysicalReaderUtil.newPhysicalReader(
+                Storage.Scheme.file, path.toString()))
+        {
+            assertEquals(0, reader.getFileLength());
+            assertThrows(IOException.class, () -> reader.readInt(ByteOrder.BIG_ENDIAN));
+        }
+    }
+
+    @Tag("integration")
+    @Test
+    void testWriteRowInfo() throws Exception
+    {
+        TestConfig.initializeIntegrationConfig();
+        int maxTx = Integer.getInteger("pixels.sink.test.transactions", 10);
+        int rowCnt = 0;
+        try (ProtoWriter transWriter = new ProtoWriter())
+        {
+            for (int i = 0; i < maxTx; i++)
+            {
+                transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.BEGIN));
+                for (int j = 0; j < 3; j++)
+                {
+                    transWriter.write(getRowRecord(rowCnt++));
+                }
+                transWriter.writeTrans(getTrans(i, SinkProto.TransactionStatus.END));
+            }
+        }
+        assertEquals(maxTx * 3, rowCnt);
     }
 }

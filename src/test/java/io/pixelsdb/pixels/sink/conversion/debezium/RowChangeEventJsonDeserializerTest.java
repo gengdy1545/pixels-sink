@@ -21,6 +21,7 @@ import io.pixelsdb.pixels.common.metadata.SchemaTableName;
 import io.pixelsdb.pixels.common.metadata.domain.Column;
 import io.pixelsdb.pixels.common.metadata.domain.Table;
 import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.metadata.TableMetadata;
@@ -35,6 +36,7 @@ import java.lang.reflect.Field;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -57,10 +59,7 @@ class RowChangeEventJsonDeserializerTest
     @BeforeAll
     static void setUpConfig() throws Exception
     {
-        PixelsSinkConfigFactory.reset();
-        PixelsSinkConfigFactory.initialize(Objects.requireNonNull(
-                RowChangeEventJsonDeserializerTest.class.getClassLoader()
-                        .getResource("pixels-sink-test.properties")).getPath());
+        TestConfig.initializeUnitConfig();
         Map<SchemaTableName, TableMetadata> registry = metadataRegistry();
         hadRegionMetadata = registry.containsKey(REGION_TABLE);
         previousRegionMetadata = registry.get(REGION_TABLE);
@@ -85,9 +84,9 @@ class RowChangeEventJsonDeserializerTest
     private String loadSchemaFromFile(String filename) throws IOException, URISyntaxException
     {
         ClassLoader classLoader = getClass().getClassLoader();
-        return new String(Files.readAllBytes(Paths.get(
-                Objects.requireNonNull(classLoader.getResource(filename)).toURI()
-        )));
+        return Files.readString(Paths.get(
+                Objects.requireNonNull(classLoader.getResource(filename)).toURI()),
+                StandardCharsets.UTF_8);
     }
 
     //   @ParameterizedTest
@@ -110,11 +109,25 @@ class RowChangeEventJsonDeserializerTest
     void shouldHandleDeleteOperation() throws Exception
     {
         String jsonData = loadSchemaFromFile("records/delete.json");
-        RowChangeEvent event = deserializer.deserialize("test_topic", jsonData.getBytes());
+        RowChangeEvent event = deserializer.deserialize(
+                "test_topic", jsonData.getBytes(StandardCharsets.UTF_8));
 
         assertTrue(event.isDelete());
 //        assertNotNull(event.getBeforeData());
 //        assertNull(event.getAfterData());
+    }
+
+    @Test
+    void shouldHandleUpdateOperation() throws Exception
+    {
+        String jsonData = loadSchemaFromFile("records/update.json");
+        RowChangeEvent event = deserializer.deserialize(
+                "test_topic", jsonData.getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(event.isUpdate());
+        assertEquals("region", event.getTable());
+        assertTrue(event.hasBeforeData());
+        assertTrue(event.hasAfterData());
     }
 
 
@@ -143,7 +156,7 @@ class RowChangeEventJsonDeserializerTest
                 """;
 
         SinkProto.TransactionMetadata transaction = transactionDeserializer.deserialize(
-                "transaction", json.getBytes());
+                "transaction", json.getBytes(StandardCharsets.UTF_8));
 
         assertEquals(SinkProto.TransactionStatus.END, transaction.getStatus());
         assertEquals("mysql-tx-1", transaction.getId());

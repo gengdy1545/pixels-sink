@@ -40,12 +40,9 @@ import java.util.concurrent.TimeUnit;
 
 public class RpcEndToEndTest
 {
-    private static final int TEST_PORT = 9091;
-    private static final int RECORD_COUNT = 5;
     private static final String TEST_SCHEMA = "pixels_bench_sf10x";
     private static final String TEST_TABLE = "savingaccount";
     private static final String FULL_TABLE_NAME = TEST_SCHEMA + "." + TEST_TABLE;
-    private static final String CONFIG_FILE_PATH = "conf/pixels-sink.aws.properties";
     private static SinkSource sinkSource; // Keep a reference to stop it later
     private static HTTPServer prometheusHttpServer;
 
@@ -56,14 +53,16 @@ public class RpcEndToEndTest
         try
         {
             // === 1. Mimic init() method from PixelsSinkApp ===
-            System.out.println("[SETUP] Initializing configuration from " + CONFIG_FILE_PATH + "...");
-            PixelsSinkConfigFactory.initialize(CONFIG_FILE_PATH);
+            String configPath = requiredProperty("pixels.sink.integration.config");
+            int testPort = configuredPort();
+            System.out.println("[SETUP] Initializing configuration from " + configPath + "...");
+            PixelsSinkConfigFactory.initialize(configPath);
 
             System.out.println("[SETUP] Initializing MetricsFacade...");
             MetricsFacade.getInstance().setSinkContextManager(SinkContextManager.getInstance());
 
             // For determinism in testing, override the port from the config file
-            System.setProperty("sink.flink.server.port", String.valueOf(TEST_PORT));
+            System.setProperty("sink.flink.server.port", String.valueOf(testPort));
             // === 2. Mimic main() method from PixelsSinkApp ===
             PixelsSinkConfig config = PixelsSinkConfigFactory.getInstance();
             System.out.println("[SETUP] Creating SinkSource application engine...");
@@ -99,7 +98,7 @@ public class RpcEndToEndTest
         // [REFACTORED] To ensure the FlinkPollingWriter uses our test port,
         // we set it as a system property before the writer is created.
         // The PixelsSinkConfigFactory should be configured to read this property.
-        System.setProperty("sink.flink.server.port", String.valueOf(TEST_PORT));
+        System.setProperty("sink.flink.server.port", String.valueOf(configuredPort()));
 
         // [REFACTORED] The setup is now dramatically simpler.
         // Instantiating FlinkPollingWriter is the ONLY step needed.
@@ -166,7 +165,8 @@ public class RpcEndToEndTest
             executor.submit(() ->
             {
                 System.out.println("[CLIENT] Starting gRPC client...");
-                ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", TEST_PORT)
+                ManagedChannel channel = ManagedChannelBuilder
+                        .forAddress(requiredProperty("pixels.sink.test.host"), configuredPort())
                         .usePlaintext()
                         .build();
 
@@ -240,5 +240,20 @@ public class RpcEndToEndTest
             System.out.println("[CLEANUP] Prometheus server stopped.");
         }
         System.out.println("[CLEANUP] Test finished.");
+    }
+
+    private static int configuredPort()
+    {
+        return Integer.parseInt(requiredProperty("pixels.sink.test.port"));
+    }
+
+    private static String requiredProperty(String key)
+    {
+        String value = System.getProperty(key);
+        if (value == null || value.isBlank())
+        {
+            throw new IllegalStateException("Set -D" + key + " to run this integration test");
+        }
+        return value;
     }
 }

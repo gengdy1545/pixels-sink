@@ -16,20 +16,33 @@
  */
 package io.pixelsdb.pixels.sink;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 /**
  * Created at: 29/04/2021
  * Author: hank
  */
-public class TestSplitString
+class TestSplitString
 {
     @Test
-    public void test()
+    void shouldSplitPipeDelimitedRecordAndKeepTrailingEmptyField()
     {
         String s = "1|3689999|O|224560.83|1996-01-02|5-LOW|Clerk#000095055|0|nstructions sleep furiously among |";
-        String reg = "\\\\|";
-        String[] splits = s.split(reg);
-        System.out.println(splits.length);
+        String[] splits = s.split("\\|", -1);
+
+        assertArrayEquals(new String[] {
+                "1",
+                "3689999",
+                "O",
+                "224560.83",
+                "1996-01-02",
+                "5-LOW",
+                "Clerk#000095055",
+                "0",
+                "nstructions sleep furiously among ",
+                ""
+        }, splits);
     }
 }

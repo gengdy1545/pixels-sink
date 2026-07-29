@@ -23,6 +23,7 @@ import io.pixelsdb.pixels.common.exception.IndexException;
 import io.pixelsdb.pixels.common.exception.MetadataException;
 import io.pixelsdb.pixels.common.index.IndexOption;
 import io.pixelsdb.pixels.common.index.service.IndexService;
+import io.pixelsdb.pixels.common.index.service.IndexServiceProvider;
 import io.pixelsdb.pixels.common.metadata.MetadataService;
 import io.pixelsdb.pixels.common.metadata.domain.Layout;
 import io.pixelsdb.pixels.common.metadata.domain.SinglePointIndex;
@@ -30,6 +31,7 @@ import io.pixelsdb.pixels.common.metadata.domain.Table;
 import io.pixelsdb.pixels.daemon.MetadataProto;
 import io.pixelsdb.pixels.index.IndexProto;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -40,11 +42,13 @@ import java.nio.ByteBuffer;
  * @author: AntiO2
  * @date: 2025/8/5 04:34
  */
-public class TestIndexService
+@Tag("integration")
+class TestIndexService
 {
 
     private final MetadataService metadataService = MetadataService.Instance();
-    private final IndexService indexService = null; // TODO
+    private final IndexService indexService =
+            IndexServiceProvider.getService(IndexServiceProvider.ServiceMode.rpc);
 
     @Test
     public void testCreateFreshnessIndex() throws MetadataException
@@ -67,7 +71,6 @@ public class TestIndexService
         SinglePointIndex index = new SinglePointIndex(singlePointIndexbuilder.build());
         boolean result = metadataService.createSinglePointIndex(index);
         Assertions.assertTrue(result);
-        boolean pause = true;
     }
 
     @Test
@@ -93,7 +96,6 @@ public class TestIndexService
         SinglePointIndex index = new SinglePointIndex(singlePointIndexbuilder.build());
         boolean result = metadataService.createSinglePointIndex(index);
         Assertions.assertTrue(result);
-        boolean pause = true;
     }
 
     @Test
@@ -106,7 +108,6 @@ public class TestIndexService
         SinglePointIndex index = metadataService.getPrimaryIndex(id);
 
         Assertions.assertNotNull(index);
-        boolean pause = true;
     }
 
     @Test
@@ -115,7 +116,6 @@ public class TestIndexService
         int numRowIds = 10000;
         IndexProto.RowIdBatch rowIdBatch = indexService.allocateRowIdBatch(4, numRowIds);
         Assertions.assertEquals(rowIdBatch.getLength(), numRowIds);
-        boolean pause = true;
     }
 
     @Test
@@ -164,6 +164,5 @@ public class TestIndexService
 
         IndexProto.RowLocation rowLocation = indexService.deletePrimaryIndexEntry(builder.getIndexKey(), indexOption);
 
-        boolean pause = false;
     }
 }

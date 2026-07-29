@@ -22,7 +22,7 @@ package io.pixelsdb.pixels.sink.processor;
 
 
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
-import io.pixelsdb.pixels.sink.provider.RowEventProvider;
+import io.pixelsdb.pixels.sink.util.BlockingBoundedQueue;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
@@ -42,20 +42,22 @@ public class TableProcessor implements StoppableProcessor, Runnable
     private static final Logger LOGGER = LoggerFactory.getLogger(TableProcessor.class);
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final PixelsSinkWriter pixelsSinkWriter;
-    private final RowEventProvider rowEventProvider;
+    private final BlockingBoundedQueue<RowChangeEvent> eventQueue;
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
     private Thread processorThread;
     private boolean tableAdded = false;
 
-    public TableProcessor(RowEventProvider rowEventProvider)
+    public TableProcessor(BlockingBoundedQueue<RowChangeEvent> eventQueue)
     {
-        this(rowEventProvider, PixelsSinkWriterFactory.getWriter());
+        this(eventQueue, PixelsSinkWriterFactory.getWriter());
     }
 
-    public TableProcessor(RowEventProvider rowEventProvider, PixelsSinkWriter pixelsSinkWriter)
+    public TableProcessor(
+            BlockingBoundedQueue<RowChangeEvent> eventQueue,
+            PixelsSinkWriter pixelsSinkWriter)
     {
         this.pixelsSinkWriter = pixelsSinkWriter;
-        this.rowEventProvider = rowEventProvider;
+        this.eventQueue = eventQueue;
     }
 
     @Override
@@ -69,7 +71,7 @@ public class TableProcessor implements StoppableProcessor, Runnable
     {
         while (running.get())
         {
-            RowChangeEvent event = rowEventProvider.takeRowChangeEvent();
+            RowChangeEvent event = eventQueue.take();
             if (event == null)
             {
                 continue;

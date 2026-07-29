@@ -29,7 +29,7 @@ import io.pixelsdb.pixels.common.transaction.TransService;
 import io.pixelsdb.pixels.index.IndexProto;
 import io.pixelsdb.pixels.retina.RetinaProto;
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
@@ -38,6 +38,7 @@ import io.pixelsdb.pixels.sink.writer.retina.RetinaServiceProxy;
 import io.pixelsdb.pixels.sink.writer.retina.TransactionProxy;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class TestRetinaWriter
+@Tag("integration")
+class TestRetinaWriter
 {
 
     static Logger logger = LoggerFactory.getLogger(TestRetinaWriter.class.getName());
@@ -65,15 +67,16 @@ public class TestRetinaWriter
     private final ExecutorService executor = Executors.newFixedThreadPool(16);
 
     @BeforeAll
-    public static void setUp() throws IOException
+    static void setUp() throws Exception
     {
-        PixelsSinkConfigFactory.initialize("/home/pixels/projects/pixels-sink/src/main/resources/pixels-sink.local.properties");
-//        PixelsSinkConfigFactory.initialize("/home/ubuntu/pixels-sink/src/main/resources/pixels-sink.aws.properties");
+        TestConfig.initializeIntegrationConfig();
         retinaService = RetinaService.Instance();
         metadataRegistry = TableMetadataRegistry.Instance();
         transService = TransService.Instance();
-        retinaPerformanceTestRowCount = 5_000_000;
-        retinaPerformanceTestMaxId = 2_000_000;
+        retinaPerformanceTestRowCount = Integer.getInteger(
+                "pixels.sink.test.retina.row.count", 1_000);
+        retinaPerformanceTestMaxId = Integer.getInteger(
+                "pixels.sink.test.retina.max.id", 2_000);
     }
 
     @Test
@@ -305,8 +308,7 @@ public class TestRetinaWriter
             Assertions.assertNotNull(writer);
             if (!writer.writeTrans(schemaName, tableUpdateData))
             {
-                logger.error("Error Write Trans");
-                System.exit(-1);
+                throw new AssertionError("Failed to write transaction");
             }
 
         }
@@ -425,8 +427,7 @@ public class TestRetinaWriter
                     long startTime = System.currentTimeMillis();
                     if (!writer.writeTrans(schemaName, tableUpdateData))
                     {
-                        logger.error("Error Write Trans");
-                        System.exit(-1);
+                        throw new AssertionError("Failed to write transaction");
                     }
                     long endTime = System.currentTimeMillis();
                     logger.debug("writeTrans batch " + batchIndex + " took " + (endTime - startTime) + " ms");

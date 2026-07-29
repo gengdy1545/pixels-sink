@@ -20,23 +20,24 @@
 
 package io.pixelsdb.pixels.sink.pipeline;
 
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.processor.TableProcessor;
-import io.pixelsdb.pixels.sink.provider.RowEventProvider;
+import io.pixelsdb.pixels.sink.util.BlockingBoundedQueue;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 
 public final class TablePipeline implements AutoCloseable
 {
-    private final RowEventProvider provider;
+    private final BlockingBoundedQueue<RowChangeEvent> eventQueue;
     private final PixelsSinkWriter writer;
     private final TableProcessor processor;
 
     public TablePipeline()
     {
-        this.provider = new RowEventProvider();
+        this.eventQueue = new BlockingBoundedQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE);
         this.writer = PixelsSinkWriterFactory.getWriter();
-        this.processor = new TableProcessor(provider, writer);
+        this.processor = new TableProcessor(eventQueue, writer);
     }
 
     public void start()
@@ -46,13 +47,13 @@ public final class TablePipeline implements AutoCloseable
 
     public void publish(RowChangeEvent event)
     {
-        provider.publishRowChangeEvent(event);
+        eventQueue.put(event);
     }
 
     @Override
     public void close()
     {
         processor.stopProcessor();
-        provider.close();
+        eventQueue.close();
     }
 }

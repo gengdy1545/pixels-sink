@@ -27,11 +27,7 @@ public final class DebeziumSourceAdapterRegistry
 
     public static DebeziumSourceAdapter forSource(String connector)
     {
-        if (connector != null && !connector.isBlank())
-        {
-            return resolve(connector);
-        }
-        return configured();
+        return resolve(connector);
     }
 
     public static DebeziumSourceAdapter resolve(String connector)

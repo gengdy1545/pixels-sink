@@ -25,6 +25,7 @@ import io.pixelsdb.pixels.common.exception.TransException;
 import io.pixelsdb.pixels.common.transaction.TransContext;
 import io.pixelsdb.pixels.common.transaction.TransService;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,16 +36,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Slf4j
-public class TransactionServiceTest
+@Tag("integration")
+class TransactionServiceTest
 {
     private static final Logger logger = LoggerFactory.getLogger(TransactionServiceTest.class);
 
     @Test
     public void testTransactionService()
     {
-        int numTransactions = 10;
+        int numTransactions = Integer.getInteger("pixels.sink.test.transactions", 10);
 
-        TransService transService = TransService.CreateInstance("localhost", 18889);
+        TransService transService = TransService.Instance();
         try
         {
             List<TransContext> transContexts = transService.beginTransBatch(numTransactions, false);
@@ -66,9 +68,9 @@ public class TransactionServiceTest
     @Test
     public void testBatchRequest()
     {
-        int numTransactions = 1000;
+        int numTransactions = Integer.getInteger("pixels.sink.test.batch.transactions", 100);
 
-        TransService transService = TransService.CreateInstance("localhost", 18889);
+        TransService transService = TransService.Instance();
         try
         {
             List<TransContext> transContexts = transService.beginTransBatch(numTransactions, false);

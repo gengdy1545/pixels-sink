@@ -31,10 +31,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
@@ -156,14 +152,12 @@ public class DebeziumRowValueConverterTest
     }
 
     @Test
-    void testParseDate()
+    void shouldConvertDebeziumEpochDay()
     {
         int day = 17059;
         Date debeziumDate = TestDateUtil.fromDebeziumDate(day);
         String dayString = TestDateUtil.convertDateToDayString(debeziumDate);
-        long ts = 1473927308302000L;
-        LocalDateTime localDateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(ts / 1000), ZoneOffset.UTC);
-        ZonedDateTime zonedDateTime = Instant.ofEpochMilli(ts).atZone(ZoneOffset.UTC);
-        boolean pause = true;
+
+        assertEquals("2016-09-15", dayString);
     }
 }

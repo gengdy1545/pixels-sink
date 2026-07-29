@@ -16,6 +16,7 @@ import io.pixelsdb.pixels.common.metadata.SchemaTableName;
 import io.pixelsdb.pixels.common.metadata.domain.Table;
 import io.pixelsdb.pixels.core.TypeDescription;
 import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.conversion.debezium.source.DebeziumSourceAdapterRegistry;
 import io.pixelsdb.pixels.sink.conversion.debezium.source.MySqlSourceAdapter;
 import io.pixelsdb.pixels.sink.conversion.debezium.source.PostgresSourceAdapter;
@@ -35,7 +36,6 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,10 +56,7 @@ class DebeziumEnvelopeNormalizerTest
     @BeforeAll
     static void setUpConfig() throws Exception
     {
-        PixelsSinkConfigFactory.reset();
-        PixelsSinkConfigFactory.initialize(Objects.requireNonNull(
-                DebeziumEnvelopeNormalizerTest.class.getClassLoader()
-                        .getResource("pixels-sink-test.properties")).getPath());
+        TestConfig.initializeUnitConfig();
         Map<SchemaTableName, TableMetadata> registry = metadataRegistry();
         hadMySqlMetadata = registry.containsKey(MYSQL_TABLE);
         previousMySqlMetadata = registry.get(MYSQL_TABLE);
@@ -153,6 +150,23 @@ class DebeziumEnvelopeNormalizerTest
                         "io.debezium.connector.mysql.MySqlConnector").connector());
         assertEquals("postgresql",
                 DebeziumSourceAdapterRegistry.resolve("postgresql").connector());
+    }
+
+    @Test
+    void shouldRejectBlankConnector()
+    {
+        assertThrows(IllegalArgumentException.class,
+                () -> DebeziumSourceAdapterRegistry.resolve(" "));
+    }
+
+    @Test
+    void shouldRejectUnsupportedConnector()
+    {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> DebeziumSourceAdapterRegistry.resolve("oracle"));
+
+        assertTrue(error.getMessage().contains("Unsupported Debezium connector"));
     }
 
     @Test
