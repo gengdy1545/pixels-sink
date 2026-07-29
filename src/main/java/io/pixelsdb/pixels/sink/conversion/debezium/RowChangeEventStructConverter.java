@@ -31,8 +31,8 @@ import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.DataException;
 import org.apache.kafka.connect.source.SourceRecord;
-
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @package: io.pixelsdb.pixels.sink.conversion.debezium
@@ -42,7 +42,7 @@ import java.util.logging.Logger;
  */
 public class RowChangeEventStructConverter
 {
-    private static final Logger LOGGER = Logger.getLogger(RowChangeEventStructConverter.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RowChangeEventStructConverter.class);
     private final TableMetadataRegistry tableMetadataRegistry;
     private final DebeziumSourceAdapter configuredAdapter;
 
@@ -103,7 +103,7 @@ public class RowChangeEventStructConverter
             tableName = sourceInfo.getTable();
         } catch (DataException | IllegalArgumentException e)
         {
-            LOGGER.warning("Missing source field in row record");
+            LOGGER.warn("Missing source field in row record");
             throw new SinkException(e);
         }
 
@@ -121,7 +121,7 @@ public class RowChangeEventStructConverter
             }
         } catch (DataException e)
         {
-            LOGGER.warning("Missing transaction field in row record");
+            LOGGER.warn("Missing transaction field in row record");
         }
 
         SinkProto.RowValue beforeValue = null;

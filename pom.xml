@@ -83,6 +83,36 @@
                     <groupId>jdk.tools</groupId>
                     <artifactId>jdk.tools</artifactId>
                 </exclusion>
+                <!-- hive/hadoop bring log4j1 + competing SLF4J bindings; use global log4j2 -->
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-web</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-1.2-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+                <!-- LLAP server not needed for JDBC client / CDC sink -->
+                <exclusion>
+                    <groupId>org.apache.hive</groupId>
+                    <artifactId>hive-llap-server</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -117,6 +147,18 @@
             <!-- the default binding from slf4j to log4j, be careful of other conflict bindings -->
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j-impl</artifactId>
+            <version>${dep.log4j.version}</version>
+        </dependency>
+        <dependency>
+            <!-- migrate log4j-1 logging to slf4j, use it with log4j-slf4j-impl -->
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+        </dependency>
+        <dependency>
+            <!-- route java.util.logging (e.g. mysql-binlog-connector) to log4j2,
+                 requires -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager -->
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-jul</artifactId>
             <version>${dep.log4j.version}</version>
         </dependency>
 
@@ -195,6 +237,13 @@
             <groupId>io.debezium</groupId>
             <artifactId>debezium-embedded</artifactId>
             <version>${dep.debezium.version}</version>
+            <exclusions>
+                <!-- connect-runtime brings a log4j1 implementation competing with log4j-over-slf4j -->
+                <exclusion>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>io.debezium</groupId>
@@ -298,13 +347,14 @@
                     <skipTests>false</skipTests>
                     <excludedGroups>integration</excludedGroups>
                     <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED
-                        --add-exports=java.base/sun.nio.ch=ALL-UNNAMED</argLine>
+                        --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+                        -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.0</version>
+                <version>${maven.plugin.shade.version}</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -314,6 +364,7 @@
                         <configuration>
                             <finalName>pixels-sink</finalName>
                             <outputDirectory>${project.basedir}/target</outputDirectory>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>full</shadedClassifierName>
                             <filters>
@@ -332,6 +383,11 @@
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>${mainClass}</mainClass>
+                                    <manifestEntries>
+                                        <!-- dependencies such as log4j-api ship JDK9+ classes under
+                                             META-INF/versions/9, which the JVM only honors with this entry -->
+                                        <Multi-Release>true</Multi-Release>
+                                    </manifestEntries>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -384,7 +440,8 @@
                             <skipTests>false</skipTests>
                             <excludedGroups combine.self="override"></excludedGroups>
                             <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED
-                                --add-exports=java.base/sun.nio.ch=ALL-UNNAMED</argLine>
+                                --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+                                -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager</argLine>
                         </configuration>
                     </plugin>
                 </plugins>

@@ -31,15 +31,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.logging.Logger;
 
 @Tag("integration")
 class TpcHTest
 {
 
-    static Logger logger = Logger.getLogger(TpcHTest.class.getName());
+    static Logger logger = LoggerFactory.getLogger(TpcHTest.class);
     static RetinaService retinaService;
     static MetadataService metadataService;
     static TransService transService;
