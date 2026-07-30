@@ -77,7 +77,8 @@ class RowRecordConverterTest
                         .setDb(TABLE.getSchemaName())
                         .setTable(TABLE.getTableName()))
                 .setAfter(SinkProto.RowValue.newBuilder()
-                        .addValues(SinkProto.ColumnValue.newBuilder().setIsNull(true))
+                        .addValues(SinkProto.ColumnValue.newBuilder()
+                                .setValue(com.google.protobuf.ByteString.EMPTY))
                         .build())
                 .build();
 

@@ -36,8 +36,6 @@ import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DebeziumRowValueConverterTest
 {
@@ -86,9 +84,7 @@ public class DebeziumRowValueConverterTest
                 ByteBuffer.wrap(value.getValues(0).getValue().toByteArray()).getLong());
         assertEquals("TDSQL value  ", value.getValues(1).getValue().toStringUtf8());
         assertEquals("24710.35", value.getValues(2).getValue().toStringUtf8());
-        assertTrue(value.getValues(3).getIsNull());
         assertEquals(0, value.getValues(3).getValue().size());
-        assertFalse(value.getValues(4).getIsNull());
         assertEquals("", value.getValues(4).getValue().toStringUtf8());
 
         ObjectNode jsonRow = new ObjectMapper().createObjectNode();

@@ -209,17 +209,16 @@ class DebeziumEnvelopeNormalizerTest
                         .setDataCollectionOrder(1))
                 .setAfter(SinkProto.RowValue.newBuilder()
                         .addValues(SinkProto.ColumnValue.newBuilder()
-                                .setValue(com.google.protobuf.ByteString.copyFromUtf8(""))
-                                .setIsNull(false))
+                                .setValue(com.google.protobuf.ByteString.copyFromUtf8("")))
                         .addValues(SinkProto.ColumnValue.newBuilder()
-                                .setIsNull(true)))
+                                .setValue(com.google.protobuf.ByteString.EMPTY)))
                 .build();
 
         SinkProto.RowRecord restored =
                 SinkProto.RowRecord.parseFrom(record.toByteArray());
 
         assertEquals(record, restored);
-        assertTrue(restored.getAfter().getValues(1).getIsNull());
+        assertEquals(0, restored.getAfter().getValues(1).getValue().size());
     }
 
     private Struct mysqlSource()

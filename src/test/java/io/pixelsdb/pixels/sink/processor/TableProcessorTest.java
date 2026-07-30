@@ -69,7 +69,8 @@ class TableProcessorTest
                         .setDb("test_db")
                         .setTable("test_table"))
                 .setAfter(SinkProto.RowValue.newBuilder()
-                        .addValues(SinkProto.ColumnValue.newBuilder().setIsNull(true)))
+                        .addValues(SinkProto.ColumnValue.newBuilder()
+                                .setValue(com.google.protobuf.ByteString.EMPTY)))
                 .build();
         TypeDescription schema = TypeDescription.createSchemaFromStrings(
                 List.of("id"), List.of("int"));

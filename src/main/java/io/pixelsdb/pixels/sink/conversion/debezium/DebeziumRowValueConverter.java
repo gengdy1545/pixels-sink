@@ -101,8 +101,7 @@ public class DebeziumRowValueConverter
         {
             return SinkProto.ColumnValue.newBuilder()
                     // .setName(fieldName)
-                    .setValue(ByteString.EMPTY)
-                    .setIsNull(true);
+                    .setValue(ByteString.EMPTY);
         }
 
         SinkProto.ColumnValue.Builder columnValueBuilder = SinkProto.ColumnValue.newBuilder();
@@ -218,8 +217,7 @@ public class DebeziumRowValueConverter
         if (raw == null)
         {
             return SinkProto.ColumnValue.newBuilder()
-                    .setValue(ByteString.EMPTY)
-                    .setIsNull(true);
+                    .setValue(ByteString.EMPTY);
         }
         if (raw instanceof JsonNode jsonNode)
         {
