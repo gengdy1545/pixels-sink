@@ -112,16 +112,33 @@ public class TableCrossTxWriter extends TableWriter
                 tableUpdateData.add(tableUpdateDataItem.build());
             }
 
+            int rowCount = batch.size();
             inFlightControlManager.acquire(1);
+            LOGGER.debug("Sending {} rows of table {} to retina, txIds={}", rowCount, tableName, txIds);
             CompletableFuture<RetinaProto.UpdateRecordResponse> updateRecordResponseCompletableFuture =
                     delegate.writeBatchAsync(batch.get(0).getSchemaName(), tableUpdateData);
+            if (updateRecordResponseCompletableFuture == null)
+            {
+                inFlightControlManager.release(1);
+                LOGGER.error("Failed to submit {} rows of table {} to retina, txIds={}", rowCount, tableName, txIds);
+                failCtxs(txIds);
+                return;
+            }
 
-            updateRecordResponseCompletableFuture.thenAccept(
-                    resp ->
+            updateRecordResponseCompletableFuture.whenComplete(
+                    (resp, err) ->
                     {
                         inFlightControlManager.release(1);
-                        if (resp.getHeader().getErrorCode() != 0)
+                        if (err != null)
                         {
+                            LOGGER.error("Retina write failed for {} rows of table {}, txIds={}",
+                                    rowCount, tableName, txIds, err);
+                            failCtxs(txIds);
+                        } else if (resp.getHeader().getErrorCode() != 0)
+                        {
+                            LOGGER.error("Retina rejected {} rows of table {}, txIds={}, errorCode={}, errorMsg={}",
+                                    rowCount, tableName, txIds, resp.getHeader().getErrorCode(),
+                                    resp.getHeader().getErrorMsg());
                             failCtxs(txIds);
                         } else
                         {
@@ -131,6 +148,7 @@ public class TableCrossTxWriter extends TableWriter
                                 metricsFacade.recordFreshness(txEndTime - txStartTime);
                             }
                             updateCtxCounters(txIds, fullTableName, tableUpdateCount);
+                            LOGGER.debug("Retina acked {} rows of table {}, txIds={}", rowCount, tableName, txIds);
                         }
                     }
             );
