@@ -197,6 +197,9 @@ public class PixelsSinkConfig
     @ConfigKey(value = "sink.storage.loop", defaultValue = "false")
     private boolean sinkStorageLoop;
 
+    @ConfigKey(value = "sink.storage.mode", defaultValue = PixelsSinkDefaultConfig.STORAGE_MODE)
+    private String sinkStorageMode;
+
     @ConfigKey(value = "sink.monitor.freshness.level", defaultValue = "row") // row or txn or embed
     private String sinkMonitorFreshnessLevel;
     @ConfigKey(value = "sink.monitor.freshness.embed.warmup", defaultValue = "10")

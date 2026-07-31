@@ -95,6 +95,7 @@ The Debezium Connector reads the database Binlog or WAL. The local `conversion.d
 | `sink.proto.dir` | required | Proto output or input directory. |
 | `sink.proto.data` | `data` | Data set name. |
 | `sink.proto.maxRecords` | `100000` | Max records per file. |
+| `sink.storage.mode` | `stream` | Storage read mode: `stream` reads records incrementally; `memory` preloads all records before replay. |
 | `sink.storage.loop` | `false` | Whether to loop over stored files. |
 
 ### Flink Sink

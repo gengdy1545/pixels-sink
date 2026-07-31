@@ -25,7 +25,10 @@ import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.source.engine.SinkEngineSource;
 import io.pixelsdb.pixels.sink.source.kafka.SinkKafkaSource;
-import io.pixelsdb.pixels.sink.source.storage.FasterSinkStorageSource;
+import io.pixelsdb.pixels.sink.source.storage.MemorySinkStorageSource;
+import io.pixelsdb.pixels.sink.source.storage.StreamingSinkStorageSource;
+
+import java.util.Locale;
 
 public class SinkSourceFactory
 {
@@ -36,8 +39,20 @@ public class SinkSourceFactory
         {
             case "kafka" -> new SinkKafkaSource();
             case "engine" -> new SinkEngineSource();
-            case "storage" -> new FasterSinkStorageSource();
+            case "storage" -> createStorageSource(config);
             default -> throw new IllegalStateException("Unsupported data source type: " + config.getDataSource());
+        };
+    }
+
+    private static SinkSource createStorageSource(PixelsSinkConfig config)
+    {
+        String storageMode = config.getSinkStorageMode().trim().toLowerCase(Locale.ROOT);
+        return switch (storageMode)
+        {
+            case "stream" -> new StreamingSinkStorageSource();
+            case "memory" -> new MemorySinkStorageSource();
+            default -> throw new IllegalStateException(
+                    "Unsupported storage source mode: " + config.getSinkStorageMode());
         };
     }
 }

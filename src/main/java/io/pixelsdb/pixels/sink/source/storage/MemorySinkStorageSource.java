@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 PixelsDB.
+ * Copyright 2026 PixelsDB.
  *
  * This file is part of Pixels.
  *
@@ -24,23 +24,17 @@ import io.pixelsdb.pixels.common.physical.PhysicalReader;
 import io.pixelsdb.pixels.common.physical.PhysicalReaderUtil;
 import io.pixelsdb.pixels.common.physical.Storage;
 import io.pixelsdb.pixels.core.utils.Pair;
-import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
-import io.pixelsdb.pixels.sink.provider.ProtoType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
 
-public abstract class AbstractMemorySinkStorageSource extends AbstractSinkStorageSource
+public class MemorySinkStorageSource extends AbstractSinkStorageSource
 {
-    private static final Logger LOGGER = LoggerFactory.getLogger(AbstractMemorySinkStorageSource.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(MemorySinkStorageSource.class);
 
     // All preloaded records, order preserved
     // key + value buffer
@@ -64,27 +58,19 @@ public abstract class AbstractMemorySinkStorageSource extends AbstractSinkStorag
                 PhysicalReader reader = PhysicalReaderUtil.newPhysicalReader(scheme, file);
                 readers.add(reader);
 
-                while (true)
+                reader.seek(0);
+                long offset = 0;
+                long fileLength = reader.getFileLength();
+                while (offset < fileLength)
                 {
-                    int key;
-                    int valueLen;
-
-                    try
-                    {
-                        key = reader.readInt(ByteOrder.BIG_ENDIAN);
-                        valueLen = reader.readInt(ByteOrder.BIG_ENDIAN);
-                    } catch (IOException eof)
-                    {
-                        // Reached end of file
-                        break;
-                    }
-                    // Synchronous read and copy to heap buffer
-                    ByteBuffer valueBuffer = reader.readFully(valueLen);
+                    Pair<Integer, ByteBuffer> record = readRecord(reader, offset, fileLength);
+                    int valueLength = record.getRight().remaining();
                     // Store into a single global array
-                    ByteBuffer cleanBuffer = valueBuffer.duplicate();
+                    ByteBuffer cleanBuffer = record.getRight().duplicate();
                     cleanBuffer.rewind();
-                    cleanBuffer.limit(cleanBuffer.position() + valueLen);
-                    preloadedRecords.add(new Pair<>(key, cleanBuffer));
+                    cleanBuffer.limit(cleanBuffer.position() + valueLength);
+                    preloadedRecords.add(new Pair<>(record.getLeft(), cleanBuffer));
+                    offset += RECORD_HEADER_SIZE + (long) valueLength;
                 }
             }
 
@@ -104,34 +90,7 @@ public abstract class AbstractMemorySinkStorageSource extends AbstractSinkStorag
                     ByteBuffer copy = ByteBuffer.allocate(src.remaining());
                     copy.put(src.duplicate().rewind());
                     copy.flip();
-                    // Lazily create queue
-                    BlockingQueue<Pair<CompletableFuture<ByteBuffer>, Integer>> queue =
-                            queueMap.computeIfAbsent(
-                                    key,
-                                    k -> new LinkedBlockingQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE)
-                            );
-
-                    // Lazily start consumer thread
-                    consumerThreads.computeIfAbsent(key, k ->
-                    {
-                        ProtoType protoType = getProtoType(k);
-                        Thread t = new Thread(() -> consumeQueue(k, queue, protoType));
-                        t.setName("consumer-" + k);
-                        t.start();
-                        return t;
-                    });
-
-                    ProtoType protoType = getProtoType(key);
-                    if (protoType == ProtoType.ROW)
-                    {
-                        sourceRateLimiter.acquire(1);
-                    }
-
-                    // Use completed future to keep consumer logic unchanged
-                    CompletableFuture<ByteBuffer> future =
-                            CompletableFuture.completedFuture(copy);
-
-                    queue.put(new Pair<>(future, loopId));
+                    submitRecord(key, copy, loopId);
                 }
                 ++loopId;
             } while (storageLoopEnabled && isRunning());

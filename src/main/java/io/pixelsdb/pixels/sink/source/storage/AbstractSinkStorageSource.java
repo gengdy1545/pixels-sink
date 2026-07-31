@@ -22,6 +22,7 @@ package io.pixelsdb.pixels.sink.source.storage;
 
 import io.pixelsdb.pixels.common.physical.PhysicalReader;
 import io.pixelsdb.pixels.core.utils.Pair;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.SinkProto;
@@ -43,6 +44,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -50,11 +52,13 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class AbstractSinkStorageSource implements SinkSource
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractSinkStorageSource.class);
+    protected static final int RECORD_HEADER_SIZE = Integer.BYTES * 2;
     protected final AtomicBoolean running = new AtomicBoolean(false);
 
     protected final String topic;
@@ -89,10 +93,67 @@ public abstract class AbstractSinkStorageSource implements SinkSource
         this.sourceRateLimiter = FlushRateLimiterFactory.getNewInstance();
     }
 
-    abstract ProtoType getProtoType(int i);
+    ProtoType getProtoType(int key)
+    {
+        return key == -1 ? ProtoType.TRANS : ProtoType.ROW;
+    }
+
+    protected static Pair<Integer, ByteBuffer> readRecord(
+            PhysicalReader reader, long offset, long fileLength) throws IOException
+    {
+        long remaining = fileLength - offset;
+        if (remaining < RECORD_HEADER_SIZE)
+        {
+            throw new IOException(
+                    "Truncated sink proto header at offset " + offset +
+                            " in " + reader.getPath());
+        }
+
+        int key = reader.readInt(ByteOrder.BIG_ENDIAN);
+        int valueLength = reader.readInt(ByteOrder.BIG_ENDIAN);
+        long availablePayload = remaining - RECORD_HEADER_SIZE;
+        if (valueLength < 0 || valueLength > availablePayload)
+        {
+            throw new IOException(
+                    "Invalid sink proto payload length " + valueLength +
+                            " at offset " + offset + " in " + reader.getPath());
+        }
+
+        return new Pair<>(key, reader.readFully(valueLength));
+    }
+
+    protected void submitRecord(int key, ByteBuffer valueBuffer, int recordLoopId)
+            throws InterruptedException
+    {
+        BlockingQueue<Pair<CompletableFuture<ByteBuffer>, Integer>> queue =
+                queueMap.computeIfAbsent(
+                        key,
+                        ignored -> new LinkedBlockingQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE)
+                );
+
+        consumerThreads.computeIfAbsent(key, ignored ->
+        {
+            ProtoType protoType = getProtoType(key);
+            Thread thread = new Thread(() -> consumeQueue(key, queue, protoType));
+            thread.setName("consumer-" + key);
+            thread.start();
+            return thread;
+        });
+
+        if (getProtoType(key) == ProtoType.ROW)
+        {
+            sourceRateLimiter.acquire(1);
+        }
+
+        queue.put(new Pair<>(
+                CompletableFuture.completedFuture(valueBuffer),
+                recordLoopId
+        ));
+    }
 
     protected void clean()
     {
+        running.set(false);
         queueMap.values().forEach(q ->
         {
             try

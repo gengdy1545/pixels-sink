@@ -53,4 +53,5 @@ public class PixelsSinkDefaultConfig
     // Mock RPC
     public static final boolean SINK_RPC_ENABLED = true;
     public static final String MAX_RECORDS_PER_FILE = "100000";
+    public static final String STORAGE_MODE = "stream";
 }
