@@ -21,7 +21,6 @@
 package io.pixelsdb.pixels.sink.source.kafka;
 
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
-import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
@@ -69,8 +68,7 @@ public final class KafkaRowSource implements Runnable
         this.topic = topic;
         this.tableName = DataTransform.extractTableName(topic);
         this.tablePipelineManager = tablePipelineManager;
-        this.converter = KafkaRecordConverter.create(
-                this.kafkaProperties, PixelsSinkConstants.ROW_RECORD_CONVERTER_CLASS);
+        this.converter = KafkaRecordConverter.forRow(this.kafkaProperties);
     }
 
     @Override

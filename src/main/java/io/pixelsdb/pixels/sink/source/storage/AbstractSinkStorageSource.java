@@ -22,8 +22,8 @@ package io.pixelsdb.pixels.sink.source.storage;
 
 import io.pixelsdb.pixels.common.physical.PhysicalReader;
 import io.pixelsdb.pixels.core.utils.Pair;
-import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.conversion.sinkproto.RowRecordConverter;
@@ -37,6 +37,8 @@ import io.pixelsdb.pixels.sink.source.SinkSource;
 import io.pixelsdb.pixels.sink.util.EtcdFileRegistry;
 import io.pixelsdb.pixels.sink.util.DataTransform;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
+import io.pixelsdb.pixels.sink.util.concurrent.DecodeExecutors;
+import io.pixelsdb.pixels.sink.util.concurrent.OrderedBatchDecoder;
 import io.pixelsdb.pixels.sink.util.rateLimiter.FlushRateLimiter;
 import io.pixelsdb.pixels.sink.util.rateLimiter.FlushRateLimiterFactory;
 import org.slf4j.Logger;
@@ -48,26 +50,20 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
 
 public abstract class AbstractSinkStorageSource implements SinkSource
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractSinkStorageSource.class);
     private static final int DECODE_BATCH_SIZE = 64;
-    private static final int DECODE_THREAD_COUNT = 4;
     private static final long DECODE_BATCH_WAIT_MILLIS = 5;
     private static final long DECODE_SHUTDOWN_TIMEOUT_SECONDS = 30;
     protected static final int RECORD_HEADER_SIZE = Integer.BYTES * 2;
@@ -93,17 +89,7 @@ public abstract class AbstractSinkStorageSource implements SinkSource
             new TransactionMetadataConverter();
     protected final boolean freshnessTimestamp;
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
-    private final AtomicInteger decoderThreadId = new AtomicInteger();
-    private final ExecutorService decodeExecutor = new ThreadPoolExecutor(
-            DECODE_THREAD_COUNT,
-            DECODE_THREAD_COUNT,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE),
-            runnable -> new Thread(
-                    runnable,
-                    "storage-proto-decoder-" + decoderThreadId.incrementAndGet()),
-            new ThreadPoolExecutor.CallerRunsPolicy());
+    private final ExecutorService decodeExecutor;
     protected int loopId = 0;
     protected List<PhysicalReader> readers = new ArrayList<>();
 
@@ -118,6 +104,9 @@ public abstract class AbstractSinkStorageSource implements SinkSource
         this.rowRecordConverter = new RowRecordConverter(TableMetadataRegistry.Instance());
         this.freshnessTimestamp = pixelsSinkConfig.isSinkMonitorFreshnessTimestamp();
         this.sourceRateLimiter = FlushRateLimiterFactory.getNewInstance();
+        this.decodeExecutor = DecodeExecutors.newFixedCallerRuns(
+                pixelsSinkConfig.getSourceDecodeThreads(),
+                "storage-proto-decoder");
     }
 
     protected void beginProcessing()
@@ -272,20 +261,8 @@ public abstract class AbstractSinkStorageSource implements SinkSource
 
     private void shutdownDecodeExecutor()
     {
-        decodeExecutor.shutdown();
-        try
-        {
-            if (!decodeExecutor.awaitTermination(
-                    DECODE_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS))
-            {
-                LOGGER.warn("Timed out waiting for storage proto decoders to stop");
-                decodeExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e)
-        {
-            decodeExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        DecodeExecutors.shutdownGracefully(
+                decodeExecutor, DECODE_SHUTDOWN_TIMEOUT_SECONDS, LOGGER);
     }
 
     protected void consumeQueue(int key, BlockingQueue<Pair<CompletableFuture<ByteBuffer>, Integer>> queue, ProtoType protoType)
@@ -356,7 +333,7 @@ public abstract class AbstractSinkStorageSource implements SinkSource
         {
             case ROW ->
             {
-                List<RowChangeEvent> events = decodeInOrder(
+                List<RowChangeEvent> events = OrderedBatchDecoder.decodeInOrder(
                         decodeExecutor,
                         batch,
                         record -> decodeRowChangeSourceRecord(key, record));
@@ -371,7 +348,8 @@ public abstract class AbstractSinkStorageSource implements SinkSource
             }
             case TRANS ->
             {
-                List<SinkProto.TransactionMetadata> transactions = decodeInOrder(
+                List<SinkProto.TransactionMetadata> transactions =
+                        OrderedBatchDecoder.decodeInOrder(
                         decodeExecutor,
                         batch,
                         this::decodeTransactionSourceRecord);
@@ -385,32 +363,6 @@ public abstract class AbstractSinkStorageSource implements SinkSource
                 }
             }
         }
-    }
-
-    static <T, R> List<R> decodeInOrder(
-            ExecutorService executor,
-            List<T> records,
-            Function<T, R> decoder) throws InterruptedException
-    {
-        List<Future<R>> futures = new ArrayList<>(records.size());
-        for (T record : records)
-        {
-            futures.add(executor.submit(() -> decoder.apply(record)));
-        }
-
-        List<R> decodedRecords = new ArrayList<>(records.size());
-        for (Future<R> future : futures)
-        {
-            try
-            {
-                decodedRecords.add(future.get());
-            } catch (ExecutionException e)
-            {
-                LOGGER.warn("Failed to decode storage record", e.getCause());
-                decodedRecords.add(null);
-            }
-        }
-        return decodedRecords;
     }
 
     private RowChangeEvent decodeRowChangeSourceRecord(

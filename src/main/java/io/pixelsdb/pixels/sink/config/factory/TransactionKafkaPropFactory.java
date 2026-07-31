@@ -36,8 +36,6 @@ public class TransactionKafkaPropFactory implements KafkaPropFactory
     public Properties createKafkaProperties(PixelsSinkConfig config)
     {
         Properties kafkaProperties = getCommonKafkaProperties(config);
-        kafkaProperties.put(PixelsSinkConstants.TRANSACTION_CONVERTER_CLASS,
-                config.getTransactionTopicValueDeserializer());
         if (config.getDebeziumConnectorClass() != null &&
                 !config.getDebeziumConnectorClass().isBlank())
         {

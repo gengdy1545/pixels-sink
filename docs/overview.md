@@ -15,13 +15,39 @@ Pixels Sink uses a multi-stage pipeline. Each stage communicates via producer/co
 - Receives a `ConfigFactory` directly and builds the same sink pipeline.
 
 **Source**
-The source stage owns input lifecycle and invokes the configured converter.
+The source stage owns transport lifecycle (Engine / Kafka / Storage). Payload
+conversion is separate from transport:
+
+- Parallel decode infrastructure lives in `util.concurrent`
+  (`DecodeExecutors`, `StreamOrderedDecoder`, `OrderedBatchDecoder`) and is
+  sized by `sink.datasource.decode.threads`.
+- Debezium envelopes (Engine Connect / Kafka JSON / Kafka Avro) convert through
+  `conversion.debezium` (`connect` / `json` / `avro` + `support` / `dialect`).
+- Storage sink-proto bytes convert through `conversion.sinkproto` and stay
+  independent of the Debezium package.
+- Engine event classification stays in `source.engine` (`ConnectEventClassifier`,
+  `DebeziumRecordType`).
+
+**Decode ordering (not enhanced beyond historical contract)**
+
+| Guaranteed | Not guaranteed |
+| --- | --- |
+| Same table (Engine) / same Storage key: FIFO relative to source scan or enqueue order | Cross-table global order |
+| TX events FIFO on the TX stream | TX BEGIN/END vs row events global arrival order |
+| | Same-table cross-PK-bucket write total order; `totalOrder` / `dataCollectionOrder` reorder |
+
+Two decoders have different roles (not a shared abstraction):
+
+| Component | Role | Stream / shard key |
+| --- | --- | --- |
+| `StreamOrderedDecoder` | Engine: ordered publish across multiple logical streams in a mixed batch | ROW = `SchemaTableName`; TX = singleton stream key |
+| `OrderedBatchDecoder` | Storage: parallel decode inside one key consumer, then deliver in input order | Sharding already done by `queueMap`; decoder does not re-shard |
 
 **Source Inputs**
 | Source Type | Description | Related Config |
 | --- | --- | --- |
-| `engine` | Debezium Engine reads WAL/binlog directly from a database | `debezium.*` |
-| `kafka` | Kafka consumer reads change events from topics | `bootstrap.servers`, `group.id`, `topic.*` |
+| `engine` | Debezium Engine reads WAL/binlog directly from a database | `debezium.*`, `sink.datasource.engine.format` |
+| `kafka` | Kafka consumer reads change events from topics | `bootstrap.servers`, `group.id`, `topic.*`, `sink.kafka.value.format` |
 | `storage` | Reads from Pixels storage files containing serialized sink proto records | `sink.proto.*`, `sink.storage.loop` |
 
 **Source Outputs**

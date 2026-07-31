@@ -23,6 +23,7 @@ package io.pixelsdb.pixels.sink.config;
 public class PixelsSinkDefaultConfig
 {
     public static final String DATA_SOURCE = "engine";
+    public static final String SOURCE_DECODE_THREADS = "4";
     public static final String PROPERTIES_PATH = "pixels-sink.properties";
     public static final String CSV_SINK_PATH = "./data";
 

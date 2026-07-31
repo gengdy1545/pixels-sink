@@ -21,7 +21,6 @@
 package io.pixelsdb.pixels.sink.source.kafka;
 
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.source.kafka.serde.KafkaRecordConverter;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
@@ -56,8 +55,7 @@ public final class KafkaTransactionSource implements Runnable
         this.transactionTopic = transactionTopic;
         Properties consumerProperties = new Properties();
         consumerProperties.putAll(kafkaProperties);
-        this.converter = KafkaRecordConverter.create(
-                consumerProperties, PixelsSinkConstants.TRANSACTION_CONVERTER_CLASS);
+        this.converter = KafkaRecordConverter.forTransaction(consumerProperties);
         this.consumer = new KafkaConsumer<>(consumerProperties);
         this.transactionPipeline = transactionPipeline;
     }

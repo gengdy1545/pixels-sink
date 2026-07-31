@@ -26,22 +26,28 @@ import io.debezium.engine.RecordChangeEvent;
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
-import io.pixelsdb.pixels.sink.conversion.debezium.DebeziumRecordUtil;
-import io.pixelsdb.pixels.sink.conversion.debezium.source.DebeziumSourceAdapter;
+import io.pixelsdb.pixels.sink.conversion.debezium.DebeziumRowConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.DebeziumTransactionConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.connect.DebeziumConnectRowConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.connect.DebeziumConnectTransactionConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapter;
+import io.pixelsdb.pixels.sink.conversion.debezium.support.DebeziumRecordUtil;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
-import io.pixelsdb.pixels.sink.exception.SinkException;
+import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
 import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
 import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
-import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumStructAdapter;
 import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumSourceAdapterSelector;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
+import io.pixelsdb.pixels.sink.util.concurrent.StreamOrderedDecoder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 /**
  * @package: io.pixelsdb.pixels.source
@@ -53,147 +59,155 @@ public class PixelsDebeziumConsumer
         implements DebeziumEngine.ChangeConsumer<RecordChangeEvent<SourceRecord>>, AutoCloseable
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(PixelsDebeziumConsumer.class);
-
-    public enum RecordType
-    {
-        ROW,
-        TRANSACTION,
-        TOMBSTONE,
-        UNKNOWN_CONTROL
-    }
+    private static final Object TRANSACTION_STREAM_KEY = new Object();
+    private static final ConnectEventClassifier CLASSIFIER = new ConnectEventClassifier();
 
     private final String checkTransactionTopic;
     private final DebeziumSourceAdapter connectorAdapter;
-    private final DebeziumStructAdapter structAdapter;
-    private final TransactionPipeline transactionPipeline = new TransactionPipeline();
-    private final TablePipelineManager tablePipelineManager = new TablePipelineManager();
+    private final DebeziumRowConverter<SourceRecord> rowConverter;
+    private final DebeziumTransactionConverter<SourceRecord> transactionConverter;
+    private final TransactionPipeline transactionPipeline;
+    private final TablePipelineManager tablePipelineManager;
+    private final StreamOrderedDecoder decodePipeline;
     private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
     private final PixelsSinkConfig pixelsSinkConfig = PixelsSinkConfigFactory.getInstance();
+
+    private record PendingRecord(
+            RecordChangeEvent<SourceRecord> record,
+            CompletableFuture<Void> completion)
+    {
+    }
 
     public PixelsDebeziumConsumer()
     {
         this.checkTransactionTopic = pixelsSinkConfig.getDebeziumTopicPrefix() + ".transaction";
         this.connectorAdapter = DebeziumSourceAdapterSelector.configured();
-        this.structAdapter = new DebeziumStructAdapter(connectorAdapter);
+        this.rowConverter = new DebeziumConnectRowConverter(
+                TableMetadataRegistry.Instance(), connectorAdapter);
+        this.transactionConverter = new DebeziumConnectTransactionConverter(connectorAdapter);
+        this.transactionPipeline = new TransactionPipeline();
+        this.tablePipelineManager = new TablePipelineManager();
+        this.decodePipeline = new StreamOrderedDecoder(
+                pixelsSinkConfig.getSourceDecodeThreads(),
+                "debezium-decoder");
     }
 
     public void start()
     {
         transactionPipeline.start();
+        decodePipeline.start();
     }
 
 
     public void handleBatch(List<RecordChangeEvent<SourceRecord>> event,
                             DebeziumEngine.RecordCommitter<RecordChangeEvent<SourceRecord>> committer) throws InterruptedException
     {
+        List<PendingRecord> pendingRecords = new ArrayList<>(event.size());
         for (RecordChangeEvent<SourceRecord> record : event)
         {
-            try
+            SourceRecord sourceRecord = record.record();
+            if (sourceRecord == null)
             {
-                SourceRecord sourceRecord = record.record();
-                if (sourceRecord == null)
-                {
-                    continue;
-                }
-
-                metricsFacade.recordDebeziumEvent();
-                RecordType recordType = classify(sourceRecord, checkTransactionTopic);
-                logSourceRecord(sourceRecord, recordType);
-                try
-                {
-                    switch (recordType)
-                    {
-                        case ROW -> handleRowChangeSourceRecord(sourceRecord);
-                        case TRANSACTION -> handleTransactionSourceRecord(sourceRecord);
-                        case TOMBSTONE, UNKNOWN_CONTROL ->
-                                LOGGER.debug("Skipping Debezium {} event from topic {}",
-                                        recordType, sourceRecord.topic());
-                    }
-                } catch (RuntimeException e)
-                {
-                    LOGGER.warn("Skipping invalid Debezium {} event from topic {}: {}",
-                            recordType, sourceRecord.topic(), e.getMessage());
-                }
-            } finally
-            {
-                committer.markProcessed(record);
+                pendingRecords.add(new PendingRecord(
+                        record, CompletableFuture.completedFuture(null)));
+                continue;
             }
 
+            metricsFacade.recordDebeziumEvent();
+            DebeziumRecordType recordType =
+                    CLASSIFIER.classify(sourceRecord, checkTransactionTopic);
+            logSourceRecord(sourceRecord, recordType);
+            CompletableFuture<Void> completion = switch (recordType)
+            {
+                case ROW -> submitRow(sourceRecord);
+                case TRANSACTION -> submitTransaction(sourceRecord);
+                case TOMBSTONE, UNKNOWN_CONTROL ->
+                {
+                    LOGGER.debug("Skipping Debezium {} event from topic {}",
+                            recordType, sourceRecord.topic());
+                    yield CompletableFuture.completedFuture(null);
+                }
+            };
+            pendingRecords.add(new PendingRecord(record, completion));
+        }
+
+        for (PendingRecord pending : pendingRecords)
+        {
+            awaitCompletion(pending.completion());
+            committer.markProcessed(pending.record());
         }
         committer.markBatchFinished();
     }
 
-    private void handleTransactionSourceRecord(SourceRecord sourceRecord) throws InterruptedException
+    private CompletableFuture<Void> submitRow(SourceRecord record)
     {
-        SinkProto.TransactionMetadata transaction = structAdapter.toTransactionMetadata(sourceRecord);
-        metricsFacade.recordSerdTxChange();
-        transactionPipeline.publish(transaction);
+        return decodePipeline.submit(
+                CLASSIFIER.tableOf(record),
+                record,
+                rowConverter::convert,
+                result -> publishRow(record, result));
     }
 
-    private void handleRowChangeSourceRecord(SourceRecord sourceRecord)
+    private CompletableFuture<Void> submitTransaction(SourceRecord record)
+    {
+        return decodePipeline.submit(
+                TRANSACTION_STREAM_KEY,
+                record,
+                transactionConverter::convert,
+                result -> publishTransaction(record, result));
+    }
+
+    private void publishRow(
+            SourceRecord record,
+            StreamOrderedDecoder.DecodeResult<RowChangeEvent> result)
+    {
+        if (result.failure() != null)
+        {
+            LOGGER.warn("Skipping invalid Debezium ROW event from topic {}",
+                    record.topic(), result.failure());
+            return;
+        }
+        if (result.value() == null)
+        {
+            return;
+        }
+        metricsFacade.recordSerdRowChange();
+        tablePipelineManager.route(result.value());
+    }
+
+    private void publishTransaction(
+            SourceRecord record,
+            StreamOrderedDecoder.DecodeResult<SinkProto.TransactionMetadata> result)
+    {
+        if (result.failure() != null)
+        {
+            LOGGER.warn("Skipping invalid Debezium TRANSACTION event from topic {}",
+                    record.topic(), result.failure());
+            return;
+        }
+        if (result.value() == null)
+        {
+            return;
+        }
+        metricsFacade.recordSerdTxChange();
+        transactionPipeline.publish(result.value());
+    }
+
+    private void awaitCompletion(CompletableFuture<Void> completion)
+            throws InterruptedException
     {
         try
         {
-            RowChangeEvent event = structAdapter.toRowEvent(sourceRecord);
-            metricsFacade.recordSerdRowChange();
-            tablePipelineManager.route(event);
-        } catch (SinkException e)
+            completion.get();
+        } catch (ExecutionException e)
         {
-            throw new IllegalArgumentException("Failed to convert Debezium row event", e);
+            throw new IllegalStateException(
+                    "Debezium decode pipeline failed before publishing an event",
+                    e.getCause());
         }
     }
 
-    public static RecordType classify(SourceRecord sourceRecord, String transactionTopic)
-    {
-        if (sourceRecord == null || sourceRecord.value() == null)
-        {
-            return RecordType.TOMBSTONE;
-        }
-        if (!(sourceRecord.value() instanceof Struct value))
-        {
-            return RecordType.UNKNOWN_CONTROL;
-        }
-
-        if (transactionTopic != null && transactionTopic.equals(sourceRecord.topic()))
-        {
-            String status = DebeziumRecordUtil.getStringSafely(value, "status");
-            String id = DebeziumRecordUtil.getStringSafely(value, "id");
-            return (status.equals("BEGIN") || status.equals("END")) && !id.isBlank()
-                    ? RecordType.TRANSACTION
-                    : RecordType.UNKNOWN_CONTROL;
-        }
-
-        return isRowChange(value) ? RecordType.ROW : RecordType.UNKNOWN_CONTROL;
-    }
-
-    private static boolean isRowChange(Struct value)
-    {
-        String op = DebeziumRecordUtil.getStringSafely(value, "op").toLowerCase(Locale.ROOT);
-        if (!(op.equals("c") || op.equals("u") || op.equals("d") || op.equals("r")))
-        {
-            return false;
-        }
-
-        Object sourceObject = DebeziumRecordUtil.getFieldSafely(value, "source");
-        if (!(sourceObject instanceof Struct source) ||
-                DebeziumRecordUtil.getStringSafely(source, "db").isBlank() ||
-                DebeziumRecordUtil.getStringSafely(source, "table").isBlank())
-        {
-            return false;
-        }
-
-        Object before = DebeziumRecordUtil.getFieldSafely(value, "before");
-        Object after = DebeziumRecordUtil.getFieldSafely(value, "after");
-        return switch (op)
-        {
-            case "c", "r" -> after instanceof Struct;
-            case "u" -> before instanceof Struct && after instanceof Struct;
-            case "d" -> before instanceof Struct;
-            default -> false;
-        };
-    }
-
-    private void logSourceRecord(SourceRecord record, RecordType recordType)
+    private void logSourceRecord(SourceRecord record, DebeziumRecordType recordType)
     {
         if (!LOGGER.isDebugEnabled())
         {
@@ -204,7 +218,7 @@ public class PixelsDebeziumConsumer
                 asStruct(DebeziumRecordUtil.getFieldSafely(value, "source"));
         Struct transaction = value == null ? null :
                 asStruct(DebeziumRecordUtil.getFieldSafely(value, "transaction"));
-        String rawTransactionId = recordType == RecordType.TRANSACTION
+        String rawTransactionId = recordType == DebeziumRecordType.TRANSACTION
                 ? DebeziumRecordUtil.getStringSafely(value, "id")
                 : DebeziumRecordUtil.getStringSafely(transaction, "id");
         String canonicalTransactionId =
@@ -235,12 +249,14 @@ public class PixelsDebeziumConsumer
     @Override
     public void close()
     {
+        decodePipeline.close();
         tablePipelineManager.close();
         transactionPipeline.close();
     }
 
     public void abort()
     {
+        decodePipeline.abort();
         tablePipelineManager.abort();
         transactionPipeline.abort();
     }

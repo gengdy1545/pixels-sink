@@ -21,9 +21,12 @@
 package io.pixelsdb.pixels.sink.source.engine.adapter;
 
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
-import io.pixelsdb.pixels.sink.conversion.debezium.source.DebeziumSourceAdapter;
-import io.pixelsdb.pixels.sink.conversion.debezium.source.DebeziumSourceAdapterRegistry;
+import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapter;
+import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapterRegistry;
 
+/**
+ * Wiring-side selector that reads {@code debezium.connector.class}.
+ */
 public final class DebeziumSourceAdapterSelector
 {
     private DebeziumSourceAdapterSelector()

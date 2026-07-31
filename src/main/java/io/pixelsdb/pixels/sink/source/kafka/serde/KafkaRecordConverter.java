@@ -6,81 +6,192 @@
  * Pixels is free software: you can redistribute it and/or modify
  * it under the terms of the Affero GNU General Public License as
  * published by the Free Software Foundation, either version 3 of
- * the license, or (at your option) any later version.
+ * the License, or (at your option) any later version.
  *
  * Pixels is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * Affero GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
+ * You should have received a copy of the GNU Affero General Public License
  * along with Pixels.  If not, see
  * <https://www.gnu.org/licenses/>.
  */
 
 package io.pixelsdb.pixels.sink.source.kafka.serde;
 
-import org.apache.kafka.common.serialization.Deserializer;
+import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.config.KafkaValueFormat;
+import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
+import io.pixelsdb.pixels.sink.conversion.debezium.avro.DebeziumAvroPayloadDecoder;
+import io.pixelsdb.pixels.sink.conversion.debezium.avro.DebeziumAvroRowConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.avro.DebeziumAvroTransactionConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapter;
+import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapterRegistry;
+import io.pixelsdb.pixels.sink.conversion.debezium.json.DebeziumJsonRowConverter;
+import io.pixelsdb.pixels.sink.conversion.debezium.json.DebeziumJsonTransactionConverter;
+import io.pixelsdb.pixels.sink.event.RowChangeEvent;
+import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
+/**
+ * Assembles Debezium row/tx converters for Kafka by {@code sink.kafka.value.format}.
+ */
 public final class KafkaRecordConverter<T> implements AutoCloseable
 {
-    private final Deserializer<T> deserializer;
+    private static final Logger LOGGER = LoggerFactory.getLogger(KafkaRecordConverter.class);
 
-    private KafkaRecordConverter(Deserializer<T> deserializer)
+    private enum ErrorPolicy
     {
-        this.deserializer = deserializer;
+        SWALLOW,
+        PROPAGATE
     }
 
-    public static <T> KafkaRecordConverter<T> create(
-            Properties properties, String converterClassKey)
+    @FunctionalInterface
+    private interface ConvertFn<T>
     {
-        Object configuredClass = properties.get(converterClassKey);
-        if (configuredClass == null)
-        {
-            throw new IllegalArgumentException(
-                    "Missing Kafka record converter: " + converterClassKey);
-        }
+        T convert(String topic, byte[] data) throws Exception;
+    }
 
-        try
+    private final ConvertFn<T> convertFn;
+    private final AutoCloseable resource;
+    private final ErrorPolicy errorPolicy;
+
+    private KafkaRecordConverter(
+            ConvertFn<T> convertFn, AutoCloseable resource, ErrorPolicy errorPolicy)
+    {
+        this.convertFn = convertFn;
+        this.resource = resource;
+        this.errorPolicy = errorPolicy;
+    }
+
+    public static KafkaRecordConverter<RowChangeEvent> forRow(Properties properties)
+    {
+        String format = resolveFormat(properties);
+        DebeziumSourceAdapter adapter = resolveAdapter(properties);
+        return switch (format)
         {
-            Class<?> converterClass = configuredClass instanceof Class<?> type
-                    ? type
-                    : Class.forName(configuredClass.toString());
-            if (!Deserializer.class.isAssignableFrom(converterClass))
+            case KafkaValueFormat.JSON ->
             {
-                throw new IllegalArgumentException(
-                        "Kafka record converter must implement Deserializer: "
-                                + converterClass.getName());
+                DebeziumJsonRowConverter converter = new DebeziumJsonRowConverter(
+                        TableMetadataRegistry.Instance(), adapter);
+                yield new KafkaRecordConverter<>(
+                        (topic, data) -> converter.convert(data), null, ErrorPolicy.SWALLOW);
             }
+            case KafkaValueFormat.AVRO ->
+            {
+                DebeziumAvroPayloadDecoder decoder = new DebeziumAvroPayloadDecoder();
+                decoder.configure(toConfigMap(properties), false);
+                DebeziumAvroRowConverter converter = new DebeziumAvroRowConverter(
+                        TableMetadataRegistry.Instance(), adapter);
+                yield new KafkaRecordConverter<>(
+                        (topic, data) -> converter.convert(decoder.decode(topic, data)),
+                        decoder,
+                        ErrorPolicy.SWALLOW);
+            }
+            default -> throw new IllegalArgumentException(
+                    "Unsupported Kafka value format: " + format);
+        };
+    }
 
-            @SuppressWarnings("unchecked")
-            Deserializer<T> deserializer =
-                    (Deserializer<T>) converterClass.getDeclaredConstructor().newInstance();
-            Map<String, Object> configuration = new HashMap<>();
-            properties.forEach((key, value) -> configuration.put(key.toString(), value));
-            deserializer.configure(configuration, false);
-            return new KafkaRecordConverter<>(deserializer);
-        } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException |
-                 IllegalAccessException | InvocationTargetException e)
+    public static KafkaRecordConverter<SinkProto.TransactionMetadata> forTransaction(
+            Properties properties)
+    {
+        String format = resolveFormat(properties);
+        DebeziumSourceAdapter adapter = resolveAdapter(properties);
+        return switch (format)
         {
-            throw new IllegalArgumentException(
-                    "Failed to create Kafka record converter: " + configuredClass, e);
-        }
+            case KafkaValueFormat.JSON ->
+            {
+                DebeziumJsonTransactionConverter converter =
+                        new DebeziumJsonTransactionConverter(adapter);
+                yield new KafkaRecordConverter<>(
+                        (topic, data) -> converter.convert(data), null, ErrorPolicy.PROPAGATE);
+            }
+            case KafkaValueFormat.AVRO ->
+            {
+                DebeziumAvroPayloadDecoder decoder = new DebeziumAvroPayloadDecoder();
+                decoder.configure(toConfigMap(properties), false);
+                DebeziumAvroTransactionConverter converter =
+                        new DebeziumAvroTransactionConverter(adapter);
+                yield new KafkaRecordConverter<>(
+                        (topic, data) -> converter.convert(decoder.decode(topic, data)),
+                        decoder,
+                        ErrorPolicy.PROPAGATE);
+            }
+            default -> throw new IllegalArgumentException(
+                    "Unsupported Kafka value format: " + format);
+        };
     }
 
     public T convert(String topic, byte[] data)
     {
-        return deserializer.deserialize(topic, data);
+        if (data == null || data.length == 0)
+        {
+            return null;
+        }
+        try
+        {
+            return convertFn.convert(topic, data);
+        } catch (RuntimeException e)
+        {
+            if (errorPolicy == ErrorPolicy.SWALLOW)
+            {
+                LOGGER.warn("Failed to convert Kafka record from topic {}", topic, e);
+                return null;
+            }
+            throw e;
+        } catch (Exception e)
+        {
+            if (errorPolicy == ErrorPolicy.SWALLOW)
+            {
+                LOGGER.warn("Failed to convert Kafka record from topic {}", topic, e);
+                return null;
+            }
+            throw new RuntimeException("Failed to convert Kafka record from " + topic, e);
+        }
     }
 
     @Override
     public void close()
     {
-        deserializer.close();
+        if (resource != null)
+        {
+            try
+            {
+                resource.close();
+            } catch (Exception e)
+            {
+                LOGGER.warn("Failed to close Kafka record converter resource", e);
+            }
+        }
+    }
+
+    private static String resolveFormat(Properties properties)
+    {
+        Object configured = properties.get(PixelsSinkConstants.KAFKA_VALUE_FORMAT);
+        return KafkaValueFormat.resolve(configured == null ? null : configured.toString());
+    }
+
+    private static DebeziumSourceAdapter resolveAdapter(Properties properties)
+    {
+        Object connector = properties.get(PixelsSinkConstants.DEBEZIUM_CONNECTOR_CLASS);
+        if (connector == null || connector.toString().isBlank())
+        {
+            return null;
+        }
+        return DebeziumSourceAdapterRegistry.resolve(connector.toString());
+    }
+
+    private static Map<String, Object> toConfigMap(Properties properties)
+    {
+        Map<String, Object> configuration = new HashMap<>();
+        properties.forEach((key, value) -> configuration.put(key.toString(), value));
+        return configuration;
     }
 }

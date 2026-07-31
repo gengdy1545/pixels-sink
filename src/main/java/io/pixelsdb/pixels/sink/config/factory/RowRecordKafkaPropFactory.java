@@ -36,6 +36,8 @@ public class RowRecordKafkaPropFactory implements KafkaPropFactory
         kafkaProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBootstrapServers());
         kafkaProperties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, config.getKeyDeserializer());
         kafkaProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        kafkaProperties.put(
+                PixelsSinkConstants.KAFKA_VALUE_FORMAT, config.getKafkaValueFormat());
         return kafkaProperties;
     }
 
@@ -43,7 +45,6 @@ public class RowRecordKafkaPropFactory implements KafkaPropFactory
     public Properties createKafkaProperties(PixelsSinkConfig config)
     {
         Properties kafkaProperties = getCommonKafkaProperties(config);
-        kafkaProperties.put(PixelsSinkConstants.ROW_RECORD_CONVERTER_CLASS, config.getValueDeserializer());
         if (config.getDebeziumConnectorClass() != null &&
                 !config.getDebeziumConnectorClass().isBlank())
         {

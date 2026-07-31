@@ -20,12 +20,9 @@
 
 package io.pixelsdb.pixels.sink.config;
 
-import io.pixelsdb.pixels.sink.conversion.debezium.TransactionMetadataJsonDeserializer;
-
 public class TransactionConfig
 {
     public static final String DEFAULT_TRANSACTION_TOPIC_SUFFIX = "transaction";
-    public static final String DEFAULT_TRANSACTION_TOPIC_VALUE_DESERIALIZER = TransactionMetadataJsonDeserializer.class.getName();
     public static final String DEFAULT_TRANSACTION_TOPIC_GROUP_ID = "transaction_consumer";
 
     public static final String DEFAULT_TRANSACTION_TIME_OUT = "300";

@@ -12,12 +12,14 @@ Values are loaded by `PixelsSinkConfig` and mapped from keys in the properties f
 | --- | --- | --- |
 | `sink.datasource` | `engine` | Source type: `engine`, `kafka`, or `storage`. |
 | `sink.mode` | `retina` | Sink type: `retina`, `csv`, `proto`, `flink`, or `none`. |
+| `sink.datasource.decode.threads` | `4` | Decode thread pool size. Engine uses `StreamOrderedDecoder` (multi logical stream); Storage uses `OrderedBatchDecoder` (single-key batch). |
+| `sink.datasource.engine.format` | `connect` | Engine wire format. Only `connect` is allowed; other values fail fast on resolve. |
 | `sink.datasource.rate.limit` | `-1` | Rate limit for source ingestion. `-1` disables. |
 | `sink.datasource.rate.limit.type` | `semaphore` | Rate limiter type used by `FlushRateLimiterFactory`. 'guava' or 'semaphore'|
 
 ### Notes on `sink.datasource`
 
-- `engine` reads CDC logs directly from Debezium Engine. 
+- `engine` reads CDC logs directly from Debezium Engine. Currently requires `sink.datasource.engine.format=connect`. Json/Avro Engine paths are reserved and will reuse the same `conversion.debezium` converter interfaces later.
 - `storage` reads CDC logs from files dumped by `sink.proto` output; schema reference: [sink.proto](https://github.com/pixelsdb/pixels/blob/master/proto/sink.proto). 
 - `kafka` reads from a set of Kafka topics; this mode is deprecated and not actively tested.
 - Engine and Kafka records are normalized to the canonical `SinkProto` contract before reaching writers.
@@ -52,13 +54,14 @@ Notes on `sink.trans.mode`:
 
 | Key | Default | Notes |
 | --- | --- | --- |
+| `sink.datasource.engine.format` | `connect` | Only `connect` is runnable today. Non-`connect` values fail fast. |
 | `debezium.name` | none | Engine name. |
 | `debezium.connector.class` | none | Connector class, e.g. PostgreSQL or MySQL connector. |
 | `debezium.*` | none | Standard Debezium engine properties. |
 
 See `conf/pixels-sink.mysql.properties` for a TDSQL MySQL CDC example.
 
-The Debezium Connector reads the database Binlog or WAL. The local `conversion.debezium` package only converts envelopes already emitted by Debezium.
+The Debezium Connector reads the database Binlog or WAL. The local `conversion.debezium` package only converts envelopes already emitted by Debezium (`connect` / `json` / `avro` plus shared `support` / `dialect`).
 
 ### Retina Sink
 
@@ -115,14 +118,25 @@ Kafka source is deprecated.
 | `group.id` | required | Consumer group id. |
 | `auto.offset.reset` | none | Standard Kafka consumer property. |
 | `key.deserializer` | `org.apache.kafka.common.serialization.StringDeserializer` | Kafka key deserializer. |
-| `value.deserializer` | `io.pixelsdb.pixels.sink.conversion.debezium.RowChangeEventJsonDeserializer` | Kafka value deserializer for row events. |
+| `sink.kafka.value.format` | `json` | Envelope format: `json` or `avro`. Kafka sources assemble `conversion.debezium` converters from this key. |
 | `topic.prefix` | required | Topic prefix for table events. |
 | `consumer.capture_database` | required | Database name used to build topic names. |
 | `consumer.include_tables` | empty | Comma-separated table list, empty means all. |
 | `transaction.topic.suffix` | `transaction` | Suffix appended to transaction topics. |
-| `transaction.topic.value.deserializer` | `io.pixelsdb.pixels.sink.conversion.debezium.TransactionMetadataJsonDeserializer` | Deserializer for transaction messages. |
 | `transaction.topic.group_id` | `transaction_consumer` | Consumer group for transaction topic. |
 | `sink.registry.url` | required | Avro Schema registry endpoint. |
+
+**Legacy Kafka deserializer migration**
+
+Prefer `sink.kafka.value.format`. Old keys `value.deserializer` and
+`transaction.topic.value.deserializer` are no longer SPI; `PixelsSinkConfig`
+migrates them at startup:
+
+| Condition | Behavior |
+| --- | --- |
+| `sink.kafka.value.format` is set; legacy keys still present | Warn and ignore legacy keys |
+| Format unset; legacy class name maps to Json/Avro | Infer format and warn |
+| Row/tx inferences conflict, or class name unrecognized | Fail fast |
 
 **Reserved Configuration**
 

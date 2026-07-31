@@ -21,20 +21,28 @@
 package io.pixelsdb.pixels.sink.config;
 
 import io.pixelsdb.pixels.common.utils.ConfigFactory;
-import io.pixelsdb.pixels.sink.conversion.debezium.RowChangeEventJsonDeserializer;
-import io.pixelsdb.pixels.sink.conversion.debezium.TransactionMetadataJsonDeserializer;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkMode;
 import io.pixelsdb.pixels.sink.writer.retina.RetinaServiceProxy;
 import io.pixelsdb.pixels.sink.writer.retina.TransactionMode;
 import lombok.Getter;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
+import java.util.Properties;
 
 @Getter
 public class PixelsSinkConfig
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PixelsSinkConfig.class);
+    private static final String LEGACY_VALUE_DESERIALIZER = "value.deserializer";
+    private static final String LEGACY_TX_VALUE_DESERIALIZER =
+            "transaction.topic.value.deserializer";
+    private static final String KAFKA_VALUE_FORMAT_KEY = "sink.kafka.value.format";
+
     private final ConfigFactory config;
 
     @ConfigKey(value = "transaction.timeout", defaultValue = TransactionConfig.DEFAULT_TRANSACTION_TIME_OUT)
@@ -152,18 +160,17 @@ public class PixelsSinkConfig
     @ConfigKey(value = "key.deserializer", defaultClass = StringDeserializer.class)
     private String keyDeserializer;
 
-    @ConfigKey(value = "value.deserializer", defaultClass = RowChangeEventJsonDeserializer.class)
-    private String valueDeserializer;
+    /**
+     * Kafka envelope wire format: {@code json} or {@code avro}.
+     */
+    @ConfigKey(value = "sink.kafka.value.format", defaultValue = KafkaValueFormat.JSON)
+    private String kafkaValueFormat;
 
     @ConfigKey(value = "sink.csv.path", defaultValue = PixelsSinkDefaultConfig.CSV_SINK_PATH)
     private String csvSinkPath;
 
     @ConfigKey(value = "transaction.topic.suffix", defaultValue = TransactionConfig.DEFAULT_TRANSACTION_TOPIC_SUFFIX)
     private String transactionTopicSuffix;
-
-    @ConfigKey(value = "transaction.topic.value.deserializer",
-            defaultClass = TransactionMetadataJsonDeserializer.class)
-    private String transactionTopicValueDeserializer;
 
     @ConfigKey(value = "transaction.topic.group_id",
             defaultValue = TransactionConfig.DEFAULT_TRANSACTION_TOPIC_GROUP_ID)
@@ -177,6 +184,16 @@ public class PixelsSinkConfig
 
     @ConfigKey(value = "sink.datasource", defaultValue = PixelsSinkDefaultConfig.DATA_SOURCE)
     private String dataSource;
+
+    /**
+     * Engine wire format. Currently only {@code connect} is implemented.
+     */
+    @ConfigKey(value = "sink.datasource.engine.format", defaultValue = "connect")
+    private String engineFormat;
+
+    @ConfigKey(value = "sink.datasource.decode.threads",
+            defaultValue = PixelsSinkDefaultConfig.SOURCE_DECODE_THREADS)
+    private int sourceDecodeThreads;
 
     @ConfigKey(value = "sink.datasource.rate.limit", defaultValue = "-1")
     private int sourceRateLimit;
@@ -255,8 +272,104 @@ public class PixelsSinkConfig
 
     private void init()
     {
-        ConfigLoader.load(this.config.extractPropertiesByPrefix("", false), this);
+        Properties props = this.config.extractPropertiesByPrefix("", false);
+        ConfigLoader.load(props, this);
 
+        if (this.sourceDecodeThreads <= 0)
+        {
+            throw new IllegalArgumentException(
+                    "sink.datasource.decode.threads must be positive");
+        }
         this.enableSourceRateLimit = this.sourceRateLimit >= 0;
+        this.kafkaValueFormat = resolveKafkaValueFormat(props);
+        this.engineFormat = EngineValueFormat.resolve(this.engineFormat);
+    }
+
+    /**
+     * Migrates legacy {@code value.deserializer} /
+     * {@code transaction.topic.value.deserializer} class names to
+     * {@code sink.kafka.value.format}. Package-visible for unit tests.
+     */
+    static String resolveKafkaValueFormat(Properties props)
+    {
+        String explicitFormat = trimToNull(props.getProperty(KAFKA_VALUE_FORMAT_KEY));
+        String rowDeserializer = trimToNull(props.getProperty(LEGACY_VALUE_DESERIALIZER));
+        String txDeserializer = trimToNull(props.getProperty(LEGACY_TX_VALUE_DESERIALIZER));
+        boolean hasLegacy = rowDeserializer != null || txDeserializer != null;
+
+        if (explicitFormat != null)
+        {
+            if (hasLegacy)
+            {
+                LOGGER.warn(
+                        "Ignoring legacy {} / {} because {} is set to '{}'",
+                        LEGACY_VALUE_DESERIALIZER,
+                        LEGACY_TX_VALUE_DESERIALIZER,
+                        KAFKA_VALUE_FORMAT_KEY,
+                        explicitFormat);
+            }
+            return KafkaValueFormat.resolve(explicitFormat);
+        }
+
+        if (!hasLegacy)
+        {
+            return KafkaValueFormat.resolve(null);
+        }
+
+        String inferredRow = inferFormatFromDeserializer(rowDeserializer);
+        String inferredTx = inferFormatFromDeserializer(txDeserializer);
+        if (inferredRow == null && inferredTx == null)
+        {
+            throw new IllegalArgumentException(
+                    "Unable to migrate legacy Kafka deserializer classes to " +
+                            KAFKA_VALUE_FORMAT_KEY + ": value.deserializer=" +
+                            rowDeserializer + ", transaction.topic.value.deserializer=" +
+                            txDeserializer);
+        }
+        if (inferredRow != null && inferredTx != null && !inferredRow.equals(inferredTx))
+        {
+            throw new IllegalArgumentException(
+                    "Conflicting legacy Kafka deserializer formats: value.deserializer=" +
+                            rowDeserializer + " (" + inferredRow +
+                            "), transaction.topic.value.deserializer=" +
+                            txDeserializer + " (" + inferredTx + ")");
+        }
+        String inferred = inferredRow != null ? inferredRow : inferredTx;
+        LOGGER.warn(
+                "Migrating legacy Kafka deserializer class names to {}={}",
+                KAFKA_VALUE_FORMAT_KEY, inferred);
+        return inferred;
+    }
+
+    private static String inferFormatFromDeserializer(String className)
+    {
+        if (className == null)
+        {
+            return null;
+        }
+        String simpleName = className;
+        int lastDot = className.lastIndexOf('.');
+        if (lastDot >= 0 && lastDot + 1 < className.length())
+        {
+            simpleName = className.substring(lastDot + 1);
+        }
+        String lower = simpleName.toLowerCase(Locale.ROOT);
+        boolean json = lower.contains("json");
+        boolean avro = lower.contains("avro");
+        if (json == avro)
+        {
+            return null;
+        }
+        return json ? KafkaValueFormat.JSON : KafkaValueFormat.AVRO;
+    }
+
+    private static String trimToNull(String value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }
