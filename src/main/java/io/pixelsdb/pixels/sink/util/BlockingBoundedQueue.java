@@ -27,8 +27,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 /**
  * A bounded blocking queue with an explicit shutdown signal.
  *
- * <p>Closing the queue discards pending values and wakes a blocked consumer.
- * This is intended for pipeline shutdown, not graceful draining.</p>
+ * <p>Closing the queue finishes it gracefully. Use {@link #abort()} to
+ * discard pending values and wake a blocked consumer immediately.</p>
  */
 public final class BlockingBoundedQueue<T> implements Closeable
 {
@@ -79,6 +79,12 @@ public final class BlockingBoundedQueue<T> implements Closeable
         }
     }
 
+    /**
+     * Stops accepting new values and wakes the consumer after all queued values
+     * have been consumed.
+     *
+     * <p>The caller must stop all producers before invoking this method.</p>
+     */
     @Override
     public void close()
     {
@@ -86,6 +92,31 @@ public final class BlockingBoundedQueue<T> implements Closeable
         {
             return;
         }
+        closed = true;
+        boolean interrupted = false;
+        while (true)
+        {
+            try
+            {
+                queue.put(POISON_PILL);
+                break;
+            } catch (InterruptedException e)
+            {
+                interrupted = true;
+            }
+        }
+        if (interrupted)
+        {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Stops accepting new values, discards pending values, and wakes a blocked
+     * consumer. Values already consumed are not rolled back.
+     */
+    public void abort()
+    {
         closed = true;
         queue.clear();
         queue.offer(POISON_PILL);

@@ -69,15 +69,29 @@ class BlockingBoundedQueueTest
     }
 
     @Test
-    void shouldDiscardPendingValuesWhenClosed()
+    void shouldDiscardPendingValuesWhenAborted()
     {
         BlockingBoundedQueue<Integer> queue = new BlockingBoundedQueue<>(1);
         queue.put(7);
         queue.put(null);
 
-        queue.close();
+        queue.abort();
 
         assertNull(queue.take());
         queue.close();
+    }
+
+    @Test
+    void shouldDrainPendingValuesWhenClosed()
+    {
+        try (BlockingBoundedQueue<Integer> queue = new BlockingBoundedQueue<>(2))
+        {
+            queue.put(7);
+
+            queue.close();
+
+            assertEquals(7, queue.take());
+            assertNull(queue.take());
+        }
     }
 }

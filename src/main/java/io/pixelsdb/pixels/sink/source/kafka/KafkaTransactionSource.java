@@ -23,7 +23,6 @@ package io.pixelsdb.pixels.sink.source.kafka;
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
-import io.pixelsdb.pixels.sink.processor.StoppableProcessor;
 import io.pixelsdb.pixels.sink.source.kafka.serde.KafkaRecordConverter;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -38,7 +37,7 @@ import java.util.Collections;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public final class KafkaTransactionSource implements Runnable, StoppableProcessor
+public final class KafkaTransactionSource implements Runnable
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(KafkaTransactionSource.class);
 
@@ -112,8 +111,7 @@ public final class KafkaTransactionSource implements Runnable, StoppableProcesso
         }
     }
 
-    @Override
-    public void stopProcessor()
+    void requestStop()
     {
         running.set(false);
         consumer.wakeup();

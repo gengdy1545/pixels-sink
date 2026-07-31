@@ -26,10 +26,13 @@ import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransactionProcessorTest
@@ -38,35 +41,42 @@ class TransactionProcessorTest
     void shouldForwardTransactionsAndStop() throws Exception
     {
         BlockingBoundedQueue<SinkProto.TransactionMetadata> queue =
-                new BlockingBoundedQueue<>(1);
+                new BlockingBoundedQueue<>(2);
         RecordingWriter writer = new RecordingWriter();
         TransactionProcessor processor = new TransactionProcessor(queue, writer);
         Thread processorThread = new Thread(processor, "transaction-processor-test");
-        SinkProto.TransactionMetadata transaction = SinkProto.TransactionMetadata.newBuilder()
+        SinkProto.TransactionMetadata first = SinkProto.TransactionMetadata.newBuilder()
                 .setId("transaction-1")
+                .build();
+        SinkProto.TransactionMetadata second = SinkProto.TransactionMetadata.newBuilder()
+                .setId("transaction-2")
                 .build();
 
         try
         {
             processorThread.start();
-            queue.put(transaction);
+            queue.put(first);
+            queue.put(second);
+            queue.close();
+            processorThread.join(1000);
 
-            assertTrue(writer.transactionWritten.await(1, TimeUnit.SECONDS));
-            assertSame(transaction, writer.transaction);
+            assertTrue(writer.transactionsWritten.await(1, TimeUnit.SECONDS));
+            assertEquals(List.of(first, second), writer.transactions);
+            assertFalse(processorThread.isAlive());
         } finally
         {
-            processor.stopProcessor();
-            queue.close();
+            processor.abort();
+            queue.abort();
             processorThread.interrupt();
             processorThread.join(1000);
         }
-        assertTrue(!processorThread.isAlive());
     }
 
     private static final class RecordingWriter implements PixelsSinkWriter
     {
-        private final CountDownLatch transactionWritten = new CountDownLatch(1);
-        private SinkProto.TransactionMetadata transaction;
+        private final CountDownLatch transactionsWritten = new CountDownLatch(2);
+        private final List<SinkProto.TransactionMetadata> transactions =
+                new CopyOnWriteArrayList<>();
 
         @Override
         public void flush()
@@ -82,8 +92,8 @@ class TransactionProcessorTest
         @Override
         public boolean writeTrans(SinkProto.TransactionMetadata transactionMetadata)
         {
-            transaction = transactionMetadata;
-            transactionWritten.countDown();
+            transactions.add(transactionMetadata);
+            transactionsWritten.countDown();
             return true;
         }
 

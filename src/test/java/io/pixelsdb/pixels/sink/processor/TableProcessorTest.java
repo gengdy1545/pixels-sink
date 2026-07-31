@@ -30,10 +30,11 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TableProcessorTest
@@ -42,22 +43,27 @@ class TableProcessorTest
     void shouldForwardRowsToWriter() throws Exception
     {
         TestConfig.initializeUnitConfig();
-        BlockingBoundedQueue<RowChangeEvent> queue = new BlockingBoundedQueue<>(1);
+        BlockingBoundedQueue<RowChangeEvent> queue = new BlockingBoundedQueue<>(2);
         RecordingWriter writer = new RecordingWriter();
         TableProcessor processor = new TableProcessor(queue, writer);
-        RowChangeEvent event = rowEvent();
+        RowChangeEvent first = rowEvent();
+        RowChangeEvent second = rowEvent();
 
         try
         {
             processor.run();
-            queue.put(event);
+            queue.put(first);
+            queue.put(second);
+            queue.close();
+            processor.awaitTermination();
 
-            assertTrue(writer.rowWritten.await(1, TimeUnit.SECONDS));
-            assertSame(event, writer.row);
+            assertTrue(writer.rowsWritten.await(1, TimeUnit.SECONDS));
+            assertEquals(List.of(first, second), writer.rows);
         } finally
         {
-            processor.stopProcessor();
-            queue.close();
+            processor.abort();
+            queue.abort();
+            processor.awaitTermination();
         }
     }
 
@@ -79,8 +85,8 @@ class TableProcessorTest
 
     private static final class RecordingWriter implements PixelsSinkWriter
     {
-        private final CountDownLatch rowWritten = new CountDownLatch(1);
-        private RowChangeEvent row;
+        private final CountDownLatch rowsWritten = new CountDownLatch(2);
+        private final List<RowChangeEvent> rows = new CopyOnWriteArrayList<>();
 
         @Override
         public void flush()
@@ -90,8 +96,8 @@ class TableProcessorTest
         @Override
         public boolean writeRow(RowChangeEvent rowChangeEvent)
         {
-            row = rowChangeEvent;
-            rowWritten.countDown();
+            rows.add(rowChangeEvent);
+            rowsWritten.countDown();
             return true;
         }
 

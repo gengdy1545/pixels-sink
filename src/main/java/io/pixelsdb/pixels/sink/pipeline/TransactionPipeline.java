@@ -55,11 +55,32 @@ public final class TransactionPipeline implements AutoCloseable
         eventQueue.put(transaction);
     }
 
+    /**
+     * Stops accepting transactions and waits for all pending transactions to
+     * be written.
+     */
     @Override
     public void close()
     {
-        processor.stopProcessor();
         eventQueue.close();
+        try
+        {
+            processorThread.join();
+        } catch (InterruptedException e)
+        {
+            abort();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Discards pending transactions and interrupts processing. Already written
+     * transactions are not rolled back.
+     */
+    public void abort()
+    {
+        processor.abort();
+        eventQueue.abort();
         processorThread.interrupt();
     }
 }

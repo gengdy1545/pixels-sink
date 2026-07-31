@@ -24,16 +24,22 @@ import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConstants;
 import io.pixelsdb.pixels.sink.config.factory.KafkaPropFactorySelector;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
-import io.pixelsdb.pixels.sink.processor.MonitorThreadManager;
 import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
 import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.source.SinkSource;
 
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class SinkKafkaSource implements SinkSource
 {
-    private MonitorThreadManager manager;
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 10;
+
+    private ExecutorService sourceExecutor;
+    private KafkaTransactionSource transactionSource;
+    private TopicProcessor topicProcessor;
     private TablePipelineManager tablePipelineManager;
     private TransactionPipeline transactionPipeline;
     private volatile boolean running;
@@ -51,40 +57,103 @@ public class SinkKafkaSource implements SinkSource
                 pixelsSinkConfig.getTransactionTopicSuffix();
         tablePipelineManager = new TablePipelineManager();
         transactionPipeline = new TransactionPipeline();
-        KafkaTransactionSource transactionSource =
+        transactionSource =
                 new KafkaTransactionSource(
                         transactionKafkaProperties, transactionTopic, transactionPipeline);
 
         Properties topicKafkaProperties = kafkaPropFactorySelector
                 .getFactory(PixelsSinkConstants.ROW_RECORD_KAFKA_PROP_FACTORY)
                 .createKafkaProperties(pixelsSinkConfig);
-        TopicProcessor topicMonitor = new TopicProcessor(
+        topicProcessor = new TopicProcessor(
                 pixelsSinkConfig, topicKafkaProperties, tablePipelineManager);
 
         transactionPipeline.start();
-        manager = new MonitorThreadManager();
-        manager.startMonitor(transactionSource);
-        manager.startMonitor(topicMonitor);
+        sourceExecutor = Executors.newFixedThreadPool(2);
+        sourceExecutor.submit(transactionSource);
+        sourceExecutor.submit(topicProcessor);
         running = true;
     }
 
 
     @Override
-    public void stopProcessor()
+    public void close()
     {
-        if (manager != null)
+        if (transactionSource != null)
         {
-            manager.shutdown();
+            transactionSource.requestStop();
         }
+        if (topicProcessor != null)
+        {
+            topicProcessor.requestStop();
+        }
+
+        boolean sourcesStopped = true;
+        if (sourceExecutor != null)
+        {
+            sourceExecutor.shutdown();
+            try
+            {
+                if (!sourceExecutor.awaitTermination(
+                        SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                {
+                    sourceExecutor.shutdownNow();
+                    sourcesStopped = false;
+                }
+            } catch (InterruptedException e)
+            {
+                sourceExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+                sourcesStopped = false;
+            }
+        }
+
         if (transactionPipeline != null)
         {
-            transactionPipeline.close();
+            if (sourcesStopped)
+            {
+                transactionPipeline.close();
+            } else
+            {
+                transactionPipeline.abort();
+            }
         }
         if (tablePipelineManager != null)
         {
-            tablePipelineManager.close();
+            if (sourcesStopped)
+            {
+                tablePipelineManager.close();
+            } else
+            {
+                tablePipelineManager.abort();
+            }
         }
         running = false;
+    }
+
+    @Override
+    public void abort()
+    {
+        running = false;
+        if (transactionSource != null)
+        {
+            transactionSource.requestStop();
+        }
+        if (topicProcessor != null)
+        {
+            topicProcessor.abort();
+        }
+        if (sourceExecutor != null)
+        {
+            sourceExecutor.shutdownNow();
+        }
+        if (transactionPipeline != null)
+        {
+            transactionPipeline.abort();
+        }
+        if (tablePipelineManager != null)
+        {
+            tablePipelineManager.abort();
+        }
     }
 
     @Override

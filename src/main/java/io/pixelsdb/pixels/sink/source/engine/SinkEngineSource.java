@@ -31,13 +31,16 @@ import org.apache.kafka.connect.source.SourceRecord;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class SinkEngineSource implements SinkSource
 {
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 10;
+
     private final PixelsDebeziumConsumer consumer;
     private DebeziumEngine<RecordChangeEvent<SourceRecord>> engine;
     private ExecutorService executor;
-    private volatile boolean running = true;
+    private volatile boolean running;
 
     public SinkEngineSource()
     {
@@ -57,10 +60,11 @@ public class SinkEngineSource implements SinkSource
 
         this.executor = Executors.newSingleThreadExecutor();
         this.executor.execute(engine);
+        running = true;
     }
 
     @Override
-    public void stopProcessor()
+    public void close()
     {
         try
         {
@@ -71,14 +75,57 @@ public class SinkEngineSource implements SinkSource
             if (executor != null)
             {
                 executor.shutdown();
+                if (!executor.awaitTermination(
+                        SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                {
+                    executor.shutdownNow();
+                    consumer.abort();
+                    return;
+                }
             }
-            consumer.stopProcessor();
+            consumer.close();
+        } catch (InterruptedException e)
+        {
+            if (executor != null)
+            {
+                executor.shutdownNow();
+            }
+            consumer.abort();
+            Thread.currentThread().interrupt();
         } catch (Exception e)
         {
+            if (executor != null)
+            {
+                executor.shutdownNow();
+            }
+            consumer.abort();
             throw new RuntimeException("Failed to stop PixelsSinkEngine", e);
         } finally
         {
             running = false;
+        }
+    }
+
+    @Override
+    public void abort()
+    {
+        running = false;
+        if (executor != null)
+        {
+            executor.shutdownNow();
+        }
+        try
+        {
+            if (engine != null)
+            {
+                engine.close();
+            }
+        } catch (Exception e)
+        {
+            throw new RuntimeException("Failed to abort PixelsSinkEngine", e);
+        } finally
+        {
+            consumer.abort();
         }
     }
 

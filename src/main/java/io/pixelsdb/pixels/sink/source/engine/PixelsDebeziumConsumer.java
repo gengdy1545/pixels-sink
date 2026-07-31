@@ -32,7 +32,6 @@ import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
 import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
-import io.pixelsdb.pixels.sink.processor.StoppableProcessor;
 import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumStructAdapter;
 import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumSourceAdapterSelector;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
@@ -50,7 +49,8 @@ import java.util.Locale;
  * @author: AntiO2
  * @date: 2025/9/25 12:51
  */
-public class PixelsDebeziumConsumer implements DebeziumEngine.ChangeConsumer<RecordChangeEvent<SourceRecord>>, StoppableProcessor
+public class PixelsDebeziumConsumer
+        implements DebeziumEngine.ChangeConsumer<RecordChangeEvent<SourceRecord>>, AutoCloseable
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(PixelsDebeziumConsumer.class);
 
@@ -233,9 +233,15 @@ public class PixelsDebeziumConsumer implements DebeziumEngine.ChangeConsumer<Rec
     }
 
     @Override
-    public void stopProcessor()
+    public void close()
     {
         tablePipelineManager.close();
         transactionPipeline.close();
+    }
+
+    public void abort()
+    {
+        tablePipelineManager.abort();
+        transactionPipeline.abort();
     }
 }

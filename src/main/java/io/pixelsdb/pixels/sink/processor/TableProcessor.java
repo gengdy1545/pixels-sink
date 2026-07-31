@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author: AntiO2
  * @date: 2025/9/26 11:01
  */
-public class TableProcessor implements StoppableProcessor, Runnable
+public class TableProcessor implements Runnable
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(TableProcessor.class);
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -74,17 +74,25 @@ public class TableProcessor implements StoppableProcessor, Runnable
             RowChangeEvent event = eventQueue.take();
             if (event == null)
             {
-                continue;
+                break;
             }
             pixelsSinkWriter.writeRow(event);
         }
+        running.set(false);
         LOGGER.info("Processor thread exited");
     }
 
-    @Override
-    public void stopProcessor()
+    public void awaitTermination() throws InterruptedException
     {
-        LOGGER.info("Stopping transaction monitor");
+        if (processorThread != null)
+        {
+            processorThread.join();
+        }
+    }
+
+    public void abort()
+    {
+        LOGGER.info("Aborting table processor");
         running.set(false);
         if (processorThread != null)
         {

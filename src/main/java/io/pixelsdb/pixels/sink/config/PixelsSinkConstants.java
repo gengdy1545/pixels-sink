@@ -27,7 +27,6 @@ public final class PixelsSinkConstants
     public static final String ROW_RECORD_CONVERTER_CLASS = "pixels.sink.row.converter.class";
     public static final String TRANSACTION_CONVERTER_CLASS = "pixels.sink.transaction.converter.class";
     public static final String DEBEZIUM_CONNECTOR_CLASS = "debezium.connector.class";
-    public static final int MONITOR_NUM = 3;
     public static final int MAX_QUEUE_SIZE = 1_000;
     public static final String SNAPSHOT_TX_PREFIX = "SNAPSHOT-";
 

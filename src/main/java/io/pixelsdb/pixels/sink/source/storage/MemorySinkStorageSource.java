@@ -43,8 +43,7 @@ public class MemorySinkStorageSource extends AbstractSinkStorageSource
     @Override
     public void start()
     {
-        this.running.set(true);
-        this.transactionPipeline.start();
+        beginProcessing();
         try
         {
             /* =====================================================
@@ -52,6 +51,10 @@ public class MemorySinkStorageSource extends AbstractSinkStorageSource
              * ===================================================== */
             for (String file : files)
             {
+                if (!isRunning())
+                {
+                    break;
+                }
                 Storage.Scheme scheme = Storage.Scheme.fromPath(file);
                 LOGGER.info("Preloading file {}", file);
 
@@ -61,7 +64,7 @@ public class MemorySinkStorageSource extends AbstractSinkStorageSource
                 reader.seek(0);
                 long offset = 0;
                 long fileLength = reader.getFileLength();
-                while (offset < fileLength)
+                while (isRunning() && offset < fileLength)
                 {
                     Pair<Integer, ByteBuffer> record = readRecord(reader, offset, fileLength);
                     int valueLength = record.getRight().remaining();
@@ -85,6 +88,10 @@ public class MemorySinkStorageSource extends AbstractSinkStorageSource
             {
                 for (Pair<Integer, ByteBuffer> record : preloadedRecords)
                 {
+                    if (!isRunning())
+                    {
+                        break;
+                    }
                     int key = record.getLeft();
                     ByteBuffer src = record.getRight();
                     ByteBuffer copy = ByteBuffer.allocate(src.remaining());

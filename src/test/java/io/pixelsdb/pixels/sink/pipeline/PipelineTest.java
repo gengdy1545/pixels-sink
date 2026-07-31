@@ -59,4 +59,21 @@ class PipelineTest
         });
     }
 
+    @Test
+    void shouldAbortPipelines() throws Exception
+    {
+        TestConfig.initializeUnitConfig();
+
+        assertDoesNotThrow(() -> {
+            try (TablePipeline tablePipeline = new TablePipeline();
+                 TransactionPipeline transactionPipeline = new TransactionPipeline())
+            {
+                tablePipeline.start();
+                transactionPipeline.start();
+                tablePipeline.abort();
+                transactionPipeline.abort();
+            }
+        });
+    }
+
 }

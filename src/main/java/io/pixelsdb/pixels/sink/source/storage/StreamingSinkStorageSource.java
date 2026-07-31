@@ -37,12 +37,15 @@ public class StreamingSinkStorageSource extends AbstractSinkStorageSource
     @Override
     public void start()
     {
-        this.running.set(true);
-        this.transactionPipeline.start();
+        beginProcessing();
         try
         {
             for (String file : files)
             {
+                if (!isRunning())
+                {
+                    break;
+                }
                 Storage.Scheme scheme = Storage.Scheme.fromPath(file);
                 readers.add(PhysicalReaderUtil.newPhysicalReader(scheme, file));
             }

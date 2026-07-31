@@ -42,7 +42,7 @@ public class PixelsSinkProvider implements SinkProvider
     @Override
     public void shutdown()
     {
-        sinkSource.stopProcessor();
+        sinkSource.close();
     }
 
     @Override

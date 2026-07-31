@@ -50,10 +50,30 @@ public final class TablePipeline implements AutoCloseable
         eventQueue.put(event);
     }
 
+    /**
+     * Stops accepting events and waits for all pending events to be written.
+     */
     @Override
     public void close()
     {
-        processor.stopProcessor();
         eventQueue.close();
+        try
+        {
+            processor.awaitTermination();
+        } catch (InterruptedException e)
+        {
+            abort();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Discards pending events and interrupts processing. Already written events
+     * are not rolled back.
+     */
+    public void abort()
+    {
+        processor.abort();
+        eventQueue.abort();
     }
 }

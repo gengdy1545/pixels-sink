@@ -22,7 +22,6 @@ package io.pixelsdb.pixels.sink.source.kafka;
 
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.pipeline.TablePipelineManager;
-import io.pixelsdb.pixels.sink.processor.StoppableProcessor;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.slf4j.Logger;
@@ -43,7 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-public final class TopicProcessor implements Runnable, StoppableProcessor
+public final class TopicProcessor implements Runnable
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(TopicProcessor.class);
 
@@ -57,6 +56,7 @@ public final class TopicProcessor implements Runnable, StoppableProcessor
     private final Map<String, KafkaRowSource> activeSources = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final AtomicBoolean running = new AtomicBoolean(true);
+    private final Object sourceLifecycleLock = new Object();
     private AdminClient adminClient;
     private Timer timer;
 
@@ -101,12 +101,11 @@ public final class TopicProcessor implements Runnable, StoppableProcessor
             }
         } finally
         {
-            stopProcessor();
+            requestStop();
         }
     }
 
-    @Override
-    public void stopProcessor()
+    void requestStop()
     {
         if (!running.compareAndSet(true, false))
         {
@@ -120,9 +119,12 @@ public final class TopicProcessor implements Runnable, StoppableProcessor
         {
             adminClient.close(Duration.ofSeconds(5));
         }
-        activeSources.values().forEach(KafkaRowSource::stopProcessor);
-        activeSources.clear();
-        executor.shutdown();
+        synchronized (sourceLifecycleLock)
+        {
+            activeSources.values().forEach(KafkaRowSource::requestStop);
+            activeSources.clear();
+            executor.shutdown();
+        }
         try
         {
             if (!executor.awaitTermination(10, TimeUnit.SECONDS))
@@ -133,6 +135,25 @@ public final class TopicProcessor implements Runnable, StoppableProcessor
         {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
+        }
+    }
+
+    void abort()
+    {
+        running.set(false);
+        if (timer != null)
+        {
+            timer.cancel();
+        }
+        if (adminClient != null)
+        {
+            adminClient.close(Duration.ofSeconds(5));
+        }
+        synchronized (sourceLifecycleLock)
+        {
+            activeSources.values().forEach(KafkaRowSource::requestStop);
+            activeSources.clear();
+            executor.shutdownNow();
         }
     }
 
@@ -167,11 +188,18 @@ public final class TopicProcessor implements Runnable, StoppableProcessor
 
         private void startTopic(String topic)
         {
-            KafkaRowSource source = new KafkaRowSource(
-                    kafkaProperties, topic, tablePipelineManager);
-            activeSources.put(topic, source);
-            subscribedTopics.add(topic);
-            executor.submit(source);
+            synchronized (sourceLifecycleLock)
+            {
+                if (!running.get() || executor.isShutdown())
+                {
+                    return;
+                }
+                KafkaRowSource source = new KafkaRowSource(
+                        kafkaProperties, topic, tablePipelineManager);
+                activeSources.put(topic, source);
+                subscribedTopics.add(topic);
+                executor.submit(source);
+            }
         }
     }
 

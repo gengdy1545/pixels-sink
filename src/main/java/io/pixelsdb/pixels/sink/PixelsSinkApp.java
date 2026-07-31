@@ -53,8 +53,8 @@ public class PixelsSinkApp
         Runtime.getRuntime().addShutdownHook(new Thread(() ->
         {
             PixelsSinkConfig config = PixelsSinkConfigFactory.getInstance();
+            sinkSource.close();
             TransactionProxy.staticClose();
-            sinkSource.stopProcessor();
             LOGGER.info("Pixels Sink Server shutdown complete");
             if (config.getSinkMonitorFreshnessLevel().equals("embed") && freshnessClient != null)
             {

@@ -23,32 +23,74 @@ package io.pixelsdb.pixels.sink.pipeline;
 import io.pixelsdb.pixels.common.metadata.SchemaTableName;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class TablePipelineManager implements AutoCloseable
 {
     private final Map<SchemaTableName, TablePipeline> pipelines = new ConcurrentHashMap<>();
+    private final Object lifecycleLock = new Object();
+    private volatile boolean closed;
 
     public void route(RowChangeEvent event)
     {
-        if (event == null)
+        if (event == null || closed)
         {
             return;
         }
         SchemaTableName table = new SchemaTableName(event.getSchemaName(), event.getTable());
-        pipelines.computeIfAbsent(table, ignored ->
+        TablePipeline pipeline = pipelines.get(table);
+        if (pipeline == null)
         {
-            TablePipeline pipeline = new TablePipeline();
-            pipeline.start();
-            return pipeline;
-        }).publish(event);
+            synchronized (lifecycleLock)
+            {
+                if (closed)
+                {
+                    return;
+                }
+                pipeline = pipelines.computeIfAbsent(table, ignored ->
+                {
+                    TablePipeline newPipeline = new TablePipeline();
+                    newPipeline.start();
+                    return newPipeline;
+                });
+            }
+        }
+        pipeline.publish(event);
     }
 
     @Override
     public void close()
     {
-        pipelines.values().forEach(TablePipeline::close);
-        pipelines.clear();
+        List<TablePipeline> pipelinesToClose;
+        synchronized (lifecycleLock)
+        {
+            if (closed)
+            {
+                return;
+            }
+            closed = true;
+            pipelinesToClose = new ArrayList<>(pipelines.values());
+            pipelines.clear();
+        }
+        pipelinesToClose.forEach(TablePipeline::close);
+    }
+
+    public void abort()
+    {
+        List<TablePipeline> pipelinesToAbort;
+        synchronized (lifecycleLock)
+        {
+            if (closed)
+            {
+                return;
+            }
+            closed = true;
+            pipelinesToAbort = new ArrayList<>(pipelines.values());
+            pipelines.clear();
+        }
+        pipelinesToAbort.forEach(TablePipeline::abort);
     }
 }

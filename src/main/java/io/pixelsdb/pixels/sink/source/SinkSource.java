@@ -21,18 +21,26 @@
 
 package io.pixelsdb.pixels.sink.source;
 
-
-import io.pixelsdb.pixels.sink.processor.StoppableProcessor;
-
 /**
  * @package: io.pixelsdb.pixels.sink.source
  * @className: SinkSource
  * @author: AntiO2
  * @date: 2025/9/26 13:45
  */
-public interface SinkSource extends StoppableProcessor
+public interface SinkSource extends AutoCloseable
 {
     void start();
 
     boolean isRunning();
+
+    /**
+     * Stops producing new events and waits for pending events to be processed.
+     */
+    @Override
+    void close();
+
+    /**
+     * Stops immediately and discards events that have not been processed.
+     */
+    void abort();
 }

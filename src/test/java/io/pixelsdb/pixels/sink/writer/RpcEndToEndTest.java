@@ -229,10 +229,10 @@ public class RpcEndToEndTest
         System.out.println("[CLEANUP] Tearing down server components...");
         if (sinkSource != null)
         {
-            sinkSource.stopProcessor();
-            System.out.println("[CLEANUP] SinkSource processor stopped.");
+            sinkSource.close();
+            System.out.println("[CLEANUP] SinkSource closed.");
             // Note: The writer is part of sinkSource, and its resources
-            // should be cleaned up by stopProcessor or an equivalent close method.
+            // should be cleaned up by close.
         }
         if (prometheusHttpServer != null)
         {
