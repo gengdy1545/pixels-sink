@@ -91,14 +91,14 @@ class DebeziumJsonConverterTest
     @Test
     void shouldHandleDeleteOperation() throws Exception
     {
-        RowChangeEvent event = convertFixture("records/delete.json");
+        RowChangeEvent event = convertFixture("records/mysql-region-delete.json");
         assertTrue(event.isDelete());
     }
 
     @Test
     void shouldHandleUpdateOperation() throws Exception
     {
-        RowChangeEvent event = convertFixture("records/update.json");
+        RowChangeEvent event = convertFixture("records/mysql-region-update.json");
         assertTrue(event.isUpdate());
         assertEquals("region", event.getTable());
         assertTrue(event.hasBeforeData());
@@ -116,7 +116,7 @@ class DebeziumJsonConverterTest
                 List.of("int", "string", "string")));
         try
         {
-            RowChangeEvent event = convertFixture("records/insert.json");
+            RowChangeEvent event = convertFixture("records/postgresql-region-insert.json");
             assertTrue(event.isInsert());
             assertEquals("public.region", event.getFullTableName());
             assertEquals("779", event.getTransaction().getId());
@@ -130,7 +130,7 @@ class DebeziumJsonConverterTest
     @Test
     void shouldHandlePostgresSnapshotNation() throws Exception
     {
-        RowChangeEvent event = convertFixture("records/nation.json");
+        RowChangeEvent event = convertFixture("records/postgresql-nation-snapshot.json");
         assertTrue(event.isSnapshot());
         assertEquals("public.nation", event.getFullTableName());
         assertTrue(event.hasAfterData());

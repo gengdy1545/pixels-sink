@@ -15,7 +15,7 @@
  *
  */
 
-package io.pixelsdb.pixels.sink.consumer;
+package io.pixelsdb.pixels.sink.source.kafka;
 
 import io.apicurio.registry.serde.SerdeConfig;
 import io.pixelsdb.pixels.sink.TestConfig;

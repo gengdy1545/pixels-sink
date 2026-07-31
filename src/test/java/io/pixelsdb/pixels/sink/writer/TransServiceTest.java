@@ -18,7 +18,7 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-package io.pixelsdb.pixels.sink.concurrent;
+package io.pixelsdb.pixels.sink.writer;
 
 
 import io.pixelsdb.pixels.common.exception.TransException;
@@ -37,9 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Slf4j
 @Tag("integration")
-class TransactionServiceTest
+class TransServiceTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(TransactionServiceTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(TransServiceTest.class);
 
     @Test
     public void testTransactionService()

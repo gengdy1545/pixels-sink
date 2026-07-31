@@ -15,7 +15,7 @@
  *
  */
 
-package io.pixelsdb.pixels.sink.concurrent;
+package io.pixelsdb.pixels.sink.writer.retina;
 
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.TestConfig;

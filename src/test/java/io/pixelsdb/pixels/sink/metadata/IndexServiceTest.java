@@ -36,14 +36,8 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
-/**
- * @package: io.pixelsdb.pixels.sink.metadata
- * @className: TestIndexService
- * @author: AntiO2
- * @date: 2025/8/5 04:34
- */
 @Tag("integration")
-class TestIndexService
+class IndexServiceTest
 {
 
     private final MetadataService metadataService = MetadataService.Instance();

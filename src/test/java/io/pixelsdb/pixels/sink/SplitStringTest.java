@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
  * Created at: 29/04/2021
  * Author: hank
  */
-class TestSplitString
+class SplitStringTest
 {
     @Test
     void shouldSplitPipeDelimitedRecordAndKeepTrailingEmptyField()

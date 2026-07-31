@@ -18,7 +18,7 @@
  * <https://www.gnu.org/licenses/>.
  */
 
-package io.pixelsdb.pixels.sink.writer;
+package io.pixelsdb.pixels.sink.writer.retina;
 
 import com.google.protobuf.ByteString;
 import io.pixelsdb.pixels.common.exception.RetinaException;
@@ -34,8 +34,8 @@ import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
 import io.pixelsdb.pixels.sink.util.TestDateUtil;
-import io.pixelsdb.pixels.sink.writer.retina.RetinaServiceProxy;
-import io.pixelsdb.pixels.sink.writer.retina.TransactionProxy;
+import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
+import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -55,10 +55,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @Tag("integration")
-class TestRetinaWriter
+class RetinaWriterIntegrationTest
 {
 
-    static Logger logger = LoggerFactory.getLogger(TestRetinaWriter.class.getName());
+    static Logger logger = LoggerFactory.getLogger(RetinaWriterIntegrationTest.class.getName());
     static RetinaService retinaService;
     static TableMetadataRegistry metadataRegistry;
     static TransService transService;

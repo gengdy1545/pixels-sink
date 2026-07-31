@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 // We extend FreshnessClient to access the protected queryAndCalculateFreshness method
 @Tag("integration")
-class TestFreshnessClient
+class FreshnessClientTest
 {
 
     // Mocks for JDBC dependencies

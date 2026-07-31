@@ -16,14 +16,13 @@
  */
 
 
-package io.pixelsdb.pixels.sink.writer;
+package io.pixelsdb.pixels.sink.writer.proto;
 
 
 import com.google.protobuf.ByteString;
 import io.pixelsdb.pixels.common.physical.*;
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.TestConfig;
-import io.pixelsdb.pixels.sink.writer.proto.ProtoWriter;
 import io.pixelsdb.pixels.storage.localfs.PhysicalLocalReader;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,13 +38,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * @package: io.pixelsdb.pixels.sink.writer
- * @className: TestProtoWriter
- * @author: AntiO2
- * @date: 2025/10/5 09:24
- */
-class TestProtoWriter
+class ProtoWriterTest
 {
     private static final String SCHEMA_NAME = "test";
     private static final String TABLE_NAME = "ray";
