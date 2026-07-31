@@ -220,17 +220,17 @@ public class PixelsSinkConfig
     @ConfigKey(value = "sink.monitor.freshness.timestamp", defaultValue = "false")
     private boolean sinkMonitorFreshnessTimestamp;
 
-    @ConfigKey(value = "trino.url")
-    private String trinoUrl;
+    @ConfigKey(value = "sink.query.url")
+    private String sinkQueryUrl;
 
-    @ConfigKey(value = "trino.user")
-    private String trinoUser;
+    @ConfigKey(value = "sink.query.user")
+    private String sinkQueryUser;
 
-    @ConfigKey(value = "trino.password")
-    private String trinoPassword;
+    @ConfigKey(value = "sink.query.password")
+    private String sinkQueryPassword;
 
-    @ConfigKey(value = "trino.parallel", defaultValue = "1")
-    private int trinoParallel;
+    @ConfigKey(value = "sink.query.parallel", defaultValue = "1")
+    private int sinkQueryParallel;
 
     public PixelsSinkConfig(String configFilePath) throws IOException
     {

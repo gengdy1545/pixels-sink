@@ -151,13 +151,13 @@ Kafka source is deprecated.
 | `sink.monitor.freshness.verbose` | `false` | Verbose freshness logging. |
 | `sink.monitor.freshness.timestamp` | `false` | Include timestamps. |
 
-Note: In the Retina paper experiments, `sink.monitor.freshness.level=embed` is used to query freshness from Trino. This requires the last column of each table to be `freshness_ts`.
+Note: In the Retina paper experiments, `sink.monitor.freshness.level=embed` queries freshness through JDBC. This requires the last column of each table to be `freshness_ts`. Trino is available in the default build; HiveServer2 support for Hudi requires building with `-Phudi-hive`.
 
-**Freshness Trino Settings**
+**Freshness Query Settings**
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `trino.url` | required for Trino-based freshness | JDBC URL. |
-| `trino.user` | required for Trino-based freshness | Username. |
-| `trino.password` | required for Trino-based freshness | Password. |
-| `trino.parallel` | `1` | Parallel query count. |
+| `sink.query.url` | required for embedded freshness | Trino or HiveServer2 JDBC URL. |
+| `sink.query.user` | required for embedded freshness | Username. |
+| `sink.query.password` | empty | Password. |
+| `sink.query.parallel` | `1` | Parallel query count. |
