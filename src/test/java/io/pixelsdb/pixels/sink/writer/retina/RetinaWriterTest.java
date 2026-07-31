@@ -17,10 +17,8 @@ package io.pixelsdb.pixels.sink.writer.retina;
 
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.TestConfig;
-import io.pixelsdb.pixels.sink.TestUtils;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
-import io.pixelsdb.pixels.sink.writer.retina.RetinaWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -37,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,7 +55,12 @@ class RetinaWriterTest
     {
         TestConfig.initializeIntegrationConfig();
 
-        testExecutor = TestUtils.synchronousExecutor();
+        testExecutor = Executors.newSingleThreadExecutor(runnable ->
+        {
+            Thread thread = new Thread(runnable);
+            thread.setDaemon(true);
+            return thread;
+        });
         dispatchedEvents = Collections.synchronizedList(new ArrayList<>());
         coordinator = new RetinaWriter();
 

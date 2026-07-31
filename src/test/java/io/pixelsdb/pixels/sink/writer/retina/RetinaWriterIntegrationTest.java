@@ -27,8 +27,8 @@ import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.TestConfig;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
 import io.pixelsdb.pixels.sink.exception.SinkException;
+import io.pixelsdb.pixels.core.utils.DatetimeUtils;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
-import io.pixelsdb.pixels.sink.util.TestDateUtil;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 import org.junit.jupiter.api.Assertions;
@@ -41,6 +41,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -383,14 +386,14 @@ class RetinaWriterIntegrationTest
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(userID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Float.toString(oldBalance))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(isBlocked))).build())
-                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(oldTs))).build());
+                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(formatTimestamp(oldTs))).build());
 
                         SinkProto.RowValue.Builder afterValueBuilder = SinkProto.RowValue.newBuilder()
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(accountID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(userID))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Float.toString(newBalance))).build())
                                 .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(Integer.toString(isBlocked))).build())
-                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(newTs))).build());
+                                .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFromUtf8(formatTimestamp(newTs))).build());
 
                         SinkProto.RowRecord.Builder rowBuilder = SinkProto.RowRecord.newBuilder()
                                 .setOp(SinkProto.OperationType.UPDATE)
@@ -412,7 +415,7 @@ class RetinaWriterIntegrationTest
                                 .addColValues(ByteString.copyFromUtf8(Integer.toString(userID)))
                                 .addColValues(ByteString.copyFromUtf8(Float.toString(newBalance)))
                                 .addColValues(ByteString.copyFromUtf8(Integer.toString(isBlocked)))
-                        .addColValues(ByteString.copyFromUtf8(TestDateUtil.convertDebeziumTimestampToString(newTs)))
+                        .addColValues(ByteString.copyFromUtf8(formatTimestamp(newTs)))
                                 .addIndexKeys(rowChangeEvent.getAfterKey());
                         tableUpdateDataBuilder.addInsertData(insertDataBuilder.build());
                     }
@@ -502,7 +505,7 @@ class RetinaWriterIntegrationTest
                 cols[1] = Integer.toString(userID).getBytes(StandardCharsets.UTF_8);
                 cols[2] = Float.toString(balance).getBytes(StandardCharsets.UTF_8);
                 cols[3] = Integer.toString(isBlocked).getBytes(StandardCharsets.UTF_8);
-                cols[4] = TestDateUtil.convertDebeziumTimestampToString(ts).getBytes(StandardCharsets.UTF_8);
+                cols[4] = formatTimestamp(ts).getBytes(StandardCharsets.UTF_8);
                 // cols[4] = Long.toString(ts).getBytes(StandardCharsets.UTF_8);
                 // after row
                 SinkProto.RowValue.Builder afterValueBuilder = SinkProto.RowValue.newBuilder()
@@ -594,5 +597,11 @@ class RetinaWriterIntegrationTest
         double insertsPerSec = totalInserts * 2 / seconds;
         double transPerSec = batchCount * 2 / seconds;
         logger.info("Inserted " + totalInserts + " rows in " + seconds + "s, rate=" + insertsPerSec + " inserts/s," + transPerSec + "trans/s");
+    }
+
+    private static String formatTimestamp(long epochTs)
+    {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochTs), ZoneId.systemDefault())
+                .format(DatetimeUtils.SQL_LOCAL_DATE_TIME);
     }
 }
