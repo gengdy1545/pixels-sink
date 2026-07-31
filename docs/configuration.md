@@ -55,8 +55,9 @@ Notes on `sink.trans.mode`:
 | Key | Default | Notes |
 | --- | --- | --- |
 | `sink.datasource.engine.format` | `connect` | Only `connect` is runnable today. Non-`connect` values fail fast. |
+| `sink.debezium.dialect` | none | Sink-side CDC dialect for envelope normalization: `mysql` or `postgresql`. Used by Engine and Kafka conversion. If unset, falls back to inferring from `debezium.connector.class`. |
 | `debezium.name` | none | Engine name. |
-| `debezium.connector.class` | none | Connector class, e.g. PostgreSQL or MySQL connector. |
+| `debezium.connector.class` | none | Debezium Engine connector class only (which DB the engine connects to). Not a Kafka setting. |
 | `debezium.*` | none | Standard Debezium engine properties. |
 
 See `conf/pixels-sink.mysql.properties` for a TDSQL MySQL CDC example.
@@ -119,6 +120,7 @@ Kafka source is deprecated.
 | `auto.offset.reset` | none | Standard Kafka consumer property. |
 | `key.deserializer` | `org.apache.kafka.common.serialization.StringDeserializer` | Kafka key deserializer. |
 | `sink.kafka.value.format` | `json` | Envelope format: `json` or `avro`. Kafka sources assemble `conversion.debezium` converters from this key. |
+| `sink.debezium.dialect` | none | Upstream CDC dialect (`mysql` / `postgresql`). Required for Kafka transaction decoding; row events can also infer from `source.connector` when unset. |
 | `topic.prefix` | required | Topic prefix for table events. |
 | `consumer.capture_database` | required | Database name used to build topic names. |
 | `consumer.include_tables` | empty | Comma-separated table list, empty means all. |

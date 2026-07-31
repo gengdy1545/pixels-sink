@@ -98,7 +98,8 @@ public final class KafkaRecordConverter<T> implements AutoCloseable
             Properties properties)
     {
         String format = resolveFormat(properties);
-        DebeziumSourceAdapter adapter = resolveAdapter(properties);
+        // Transaction envelopes lack source.connector; dialect must be configured up front.
+        DebeziumSourceAdapter adapter = requireAdapter(properties);
         return switch (format)
         {
             case KafkaValueFormat.JSON ->
@@ -175,12 +176,25 @@ public final class KafkaRecordConverter<T> implements AutoCloseable
 
     private static DebeziumSourceAdapter resolveAdapter(Properties properties)
     {
-        Object connector = properties.get(PixelsSinkConstants.DEBEZIUM_CONNECTOR_CLASS);
-        if (connector == null || connector.toString().isBlank())
+        Object dialect = properties.get(PixelsSinkConstants.SINK_DEBEZIUM_DIALECT);
+        if (dialect == null || dialect.toString().isBlank())
         {
             return null;
         }
-        return DebeziumSourceAdapterRegistry.resolve(connector.toString());
+        return DebeziumSourceAdapterRegistry.resolve(dialect.toString());
+    }
+
+    private static DebeziumSourceAdapter requireAdapter(Properties properties)
+    {
+        DebeziumSourceAdapter adapter = resolveAdapter(properties);
+        if (adapter == null)
+        {
+            throw new IllegalStateException(
+                    PixelsSinkConstants.SINK_DEBEZIUM_DIALECT +
+                            " is required for Kafka transaction decoding" +
+                            " (mysql or postgresql)");
+        }
+        return adapter;
     }
 
     private static Map<String, Object> toConfigMap(Properties properties)

@@ -31,12 +31,10 @@ public class TransactionKafkaPropFactory implements KafkaPropFactory
     public Properties createKafkaProperties(PixelsSinkConfig config)
     {
         Properties kafkaProperties = getCommonKafkaProperties(config);
-        if (config.getDebeziumConnectorClass() != null &&
-                !config.getDebeziumConnectorClass().isBlank())
+        String dialect = config.resolveDebeziumSourceDialect();
+        if (!dialect.isBlank())
         {
-            kafkaProperties.put(
-                    PixelsSinkConstants.DEBEZIUM_CONNECTOR_CLASS,
-                    config.getDebeziumConnectorClass());
+            kafkaProperties.put(PixelsSinkConstants.SINK_DEBEZIUM_DIALECT, dialect);
         }
         if (config.getRegistryUrl() != null && !config.getRegistryUrl().isBlank())
         {

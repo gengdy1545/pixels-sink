@@ -26,6 +26,7 @@ import java.util.Properties;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KafkaRecordConverterTest
 {
@@ -74,10 +75,23 @@ class KafkaRecordConverterTest
         }
     }
 
+    @Test
+    void shouldRejectTransactionConverterWithoutDialect()
+    {
+        Properties properties = new Properties();
+        properties.put(PixelsSinkConstants.KAFKA_VALUE_FORMAT, "json");
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                () -> KafkaRecordConverter.forTransaction(properties));
+        assertTrue(error.getMessage().contains(PixelsSinkConstants.SINK_DEBEZIUM_DIALECT));
+    }
+
     private static Properties jsonProperties()
     {
         Properties properties = new Properties();
         properties.put(PixelsSinkConstants.KAFKA_VALUE_FORMAT, "json");
+        properties.put(PixelsSinkConstants.SINK_DEBEZIUM_DIALECT, "postgresql");
         return properties;
     }
 }

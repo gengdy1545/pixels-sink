@@ -137,6 +137,13 @@ public class PixelsSinkConfig
     @ConfigKey("debezium.topic.prefix")
     private String debeziumTopicPrefix;
 
+    /**
+     * Sink-side CDC dialect for envelope normalization: {@code mysql} or {@code postgresql}.
+     * Independent of {@code debezium.connector.class}, which is only for Debezium Engine.
+     */
+    @ConfigKey(value = "sink.debezium.dialect", defaultValue = "")
+    private String debeziumDialect;
+
     @ConfigKey(value = "debezium.connector.class", defaultValue = "")
     private String debeziumConnectorClass;
 
@@ -263,6 +270,24 @@ public class PixelsSinkConfig
     public String[] getIncludeTables()
     {
         return includeTablesRaw.isEmpty() ? new String[0] : includeTablesRaw.split(",");
+    }
+
+    /**
+     * Token used to select a {@code DebeziumSourceAdapter}.
+     * Prefers {@code sink.debezium.dialect}; falls back to {@code debezium.connector.class}
+     * so Engine-only configs keep working without duplicating the dialect.
+     */
+    public String resolveDebeziumSourceDialect()
+    {
+        if (debeziumDialect != null && !debeziumDialect.isBlank())
+        {
+            return debeziumDialect.trim();
+        }
+        if (debeziumConnectorClass != null && !debeziumConnectorClass.isBlank())
+        {
+            return debeziumConnectorClass.trim();
+        }
+        return "";
     }
 
     private void init()

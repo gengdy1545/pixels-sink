@@ -20,7 +20,8 @@ import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapter
 import io.pixelsdb.pixels.sink.conversion.debezium.dialect.DebeziumSourceAdapterRegistry;
 
 /**
- * Wiring-side selector that reads {@code debezium.connector.class}.
+ * Wiring-side selector for sink CDC dialect ({@code sink.debezium.dialect},
+ * with fallback to {@code debezium.connector.class}).
  */
 public final class DebeziumSourceAdapterSelector
 {
@@ -31,15 +32,15 @@ public final class DebeziumSourceAdapterSelector
     public static DebeziumSourceAdapter configured()
     {
         return DebeziumSourceAdapterRegistry.resolve(
-                PixelsSinkConfigFactory.getInstance().getDebeziumConnectorClass());
+                PixelsSinkConfigFactory.getInstance().resolveDebeziumSourceDialect());
     }
 
     public static DebeziumSourceAdapter configuredIfPresent()
     {
-        String connector =
-                PixelsSinkConfigFactory.getInstance().getDebeziumConnectorClass();
-        return connector == null || connector.isBlank()
+        String dialect =
+                PixelsSinkConfigFactory.getInstance().resolveDebeziumSourceDialect();
+        return dialect == null || dialect.isBlank()
                 ? null
-                : DebeziumSourceAdapterRegistry.resolve(connector);
+                : DebeziumSourceAdapterRegistry.resolve(dialect);
     }
 }
