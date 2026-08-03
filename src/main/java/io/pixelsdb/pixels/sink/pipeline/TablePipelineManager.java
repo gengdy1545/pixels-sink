@@ -17,17 +17,30 @@ package io.pixelsdb.pixels.sink.pipeline;
 
 import io.pixelsdb.pixels.common.metadata.SchemaTableName;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
+import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class TablePipelineManager implements AutoCloseable
 {
     private final Map<SchemaTableName, TablePipeline> pipelines = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
+    private final PixelsSinkWriter writer;
     private volatile boolean closed;
+
+    public TablePipelineManager()
+    {
+        this.writer = null;
+    }
+
+    public TablePipelineManager(PixelsSinkWriter writer)
+    {
+        this.writer = Objects.requireNonNull(writer, "writer is null");
+    }
 
     public void route(RowChangeEvent event)
     {
@@ -47,7 +60,9 @@ public final class TablePipelineManager implements AutoCloseable
                 }
                 pipeline = pipelines.computeIfAbsent(table, ignored ->
                 {
-                    TablePipeline newPipeline = new TablePipeline();
+                    TablePipeline newPipeline = writer == null
+                            ? new TablePipeline()
+                            : new TablePipeline(writer);
                     newPipeline.start();
                     return newPipeline;
                 });

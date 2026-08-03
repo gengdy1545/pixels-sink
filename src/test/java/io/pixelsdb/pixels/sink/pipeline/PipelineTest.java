@@ -17,9 +17,17 @@ package io.pixelsdb.pixels.sink.pipeline;
 
 import io.pixelsdb.pixels.sink.SinkProto;
 import io.pixelsdb.pixels.sink.TestConfig;
+import io.pixelsdb.pixels.sink.event.RowChangeEvent;
+import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
+import io.pixelsdb.pixels.core.TypeDescription;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class PipelineTest
 {
@@ -69,6 +77,75 @@ class PipelineTest
                 transactionPipeline.abort();
             }
         });
+    }
+
+    @Test
+    void shouldUseInjectedWriterForBothPipelines() throws Exception
+    {
+        TestConfig.initializeUnitConfig();
+        RecordingWriter writer = new RecordingWriter();
+        RowChangeEvent row = rowEvent();
+        SinkProto.TransactionMetadata transaction = SinkProto.TransactionMetadata.newBuilder()
+                .setId("transaction-injected")
+                .build();
+
+        try (TablePipeline tablePipeline = new TablePipeline(writer);
+             TransactionPipeline transactionPipeline = new TransactionPipeline(writer))
+        {
+            tablePipeline.start();
+            transactionPipeline.start();
+            tablePipeline.publish(row);
+            transactionPipeline.publish(transaction);
+        }
+
+        assertEquals(List.of(row), writer.rows);
+        assertEquals(List.of(transaction), writer.transactions);
+    }
+
+    private static RowChangeEvent rowEvent() throws Exception
+    {
+        SinkProto.RowRecord record = SinkProto.RowRecord.newBuilder()
+                .setOp(SinkProto.OperationType.INSERT)
+                .setSource(SinkProto.SourceInfo.newBuilder()
+                        .setDb("test_db")
+                        .setTable("test_table"))
+                .setAfter(SinkProto.RowValue.newBuilder()
+                        .addValues(SinkProto.ColumnValue.newBuilder()))
+                .build();
+        TypeDescription schema = TypeDescription.createSchemaFromStrings(
+                List.of("id"), List.of("int"));
+        return new RowChangeEvent(record, schema, null);
+    }
+
+    private static final class RecordingWriter implements PixelsSinkWriter
+    {
+        private final List<RowChangeEvent> rows = new CopyOnWriteArrayList<>();
+        private final List<SinkProto.TransactionMetadata> transactions =
+                new CopyOnWriteArrayList<>();
+
+        @Override
+        public void flush()
+        {
+        }
+
+        @Override
+        public boolean writeRow(RowChangeEvent row)
+        {
+            rows.add(row);
+            return true;
+        }
+
+        @Override
+        public boolean writeTrans(SinkProto.TransactionMetadata transaction)
+        {
+            transactions.add(transaction);
+            return true;
+        }
+
+        @Override
+        public void close() throws IOException
+        {
+        }
     }
 
 }

@@ -43,7 +43,6 @@ public class TableSingleTxWriter extends TableWriter
     {
         List<RowChangeEvent> batch;
         String txId;
-        RetinaProto.TableUpdateData.Builder toBuild;
         SinkContext sinkContext = null;
         bufferLock.lock();
         try
@@ -81,19 +80,10 @@ public class TableSingleTxWriter extends TableWriter
         }
 
         RowChangeEvent event1 = batch.get(0);
-
-        RetinaProto.TableUpdateData.Builder builder = RetinaProto.TableUpdateData.newBuilder()
-                .setPrimaryIndexId(event1.getTableMetadata().getPrimaryIndexKeyId())
-                .setTableName(tableName);
-
-
         try
         {
-            for (RowChangeEvent event : batch)
-            {
-                addUpdateData(event, builder);
-            }
-            List<RetinaProto.TableUpdateData> tableUpdateData = List.of(builder.build());
+            List<RetinaProto.TableUpdateData> tableUpdateData = List.of(
+                    RetinaPayloadBuilder.buildTableUpdateData(tableName, 0L, batch));
             delegate.writeTrans(event1.getSchemaName(), tableUpdateData);
             sinkContext.updateCounter(fullTableName, batch.size());
             // ---- Outside lock: build proto and write ----

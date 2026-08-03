@@ -25,7 +25,6 @@ import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -51,27 +50,22 @@ public class TableSingleRecordWriter extends TableCrossTxWriter
         writeLock.lock();
         try
         {
-            List<RetinaProto.TableUpdateData.Builder> tableUpdateDataBuilderList = new LinkedList<>();
+            List<RetinaProto.TableUpdateData> tableUpdateData = new LinkedList<>();
             for (RowChangeEvent event : batch)
             {
                 event.setTimeStamp(pixelsTransContext.getTimestamp());
                 event.updateIndexKey();
             }
 
-            RetinaProto.TableUpdateData.Builder builder = buildTableUpdateDataFromBatch(pixelsTransContext, batch);
-            if (builder != null)
+            RetinaProto.TableUpdateData update =
+                    buildTableUpdateDataFromBatch(pixelsTransContext, batch);
+            if (update != null)
             {
-                tableUpdateDataBuilderList.add(builder);
+                tableUpdateData.add(update);
             }
 
             // flushRateLimiter.acquire(batch.size());
             long txStartTime = System.currentTimeMillis();
-
-            List<RetinaProto.TableUpdateData> tableUpdateData = new ArrayList<>(tableUpdateDataBuilderList.size());
-            for (RetinaProto.TableUpdateData.Builder tableUpdateDataItem : tableUpdateDataBuilderList)
-            {
-                tableUpdateData.add(tableUpdateDataItem.build());
-            }
 
             final Summary.Timer startWriteLatencyTimer = metricsFacade.startWriteLatencyTimer(tableName);
             CompletableFuture<RetinaProto.UpdateRecordResponse> updateRecordResponseCompletableFuture = delegate.writeBatchAsync(batch.get(0).getSchemaName(), tableUpdateData);
@@ -112,23 +106,16 @@ public class TableSingleRecordWriter extends TableCrossTxWriter
         }
     }
 
-    protected RetinaProto.TableUpdateData.Builder buildTableUpdateDataFromBatch(TransContext transContext, List<RowChangeEvent> smallBatch)
+    protected RetinaProto.TableUpdateData buildTableUpdateDataFromBatch(
+            TransContext transContext, List<RowChangeEvent> smallBatch)
     {
-        RowChangeEvent event1 = smallBatch.get(0);
-        RetinaProto.TableUpdateData.Builder builder = RetinaProto.TableUpdateData.newBuilder()
-                .setTimestamp(transContext.getTimestamp())
-                .setPrimaryIndexId(event1.getTableMetadata().getPrimaryIndexKeyId())
-                .setTableName(tableName);
         try
         {
-            for (RowChangeEvent smallEvent : smallBatch)
-            {
-                addUpdateData(smallEvent, builder);
-            }
+            return RetinaPayloadBuilder.buildTableUpdateData(
+                    tableName, transContext.getTimestamp(), smallBatch);
         } catch (SinkException e)
         {
             throw new RuntimeException("Flush failed for table " + tableName, e);
         }
-        return builder;
     }
 }

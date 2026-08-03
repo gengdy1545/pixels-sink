@@ -15,12 +15,9 @@
  */
 package io.pixelsdb.pixels.sink.writer.retina;
 
-
-import io.pixelsdb.pixels.retina.RetinaProto;
 import io.pixelsdb.pixels.sink.config.PixelsSinkConfig;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
 import io.pixelsdb.pixels.sink.event.RowChangeEvent;
-import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import org.slf4j.Logger;
 
@@ -95,41 +92,6 @@ public abstract class TableWriter
         }
         this.flusherThread = new Thread(new FlusherRunnable(), "Pixels-Flusher-" + tableName);
         this.flusherThread.start();
-    }
-
-    /**
-     * Helper: add insert/delete data into proto builder.
-     */
-    protected static void addUpdateData(RowChangeEvent rowChangeEvent,
-                                        RetinaProto.TableUpdateData.Builder builder) throws SinkException
-    {
-        switch (rowChangeEvent.getOp())
-        {
-            case SNAPSHOT, INSERT ->
-            {
-                RetinaProto.InsertData.Builder insertDataBuilder = RetinaProto.InsertData.newBuilder();
-                insertDataBuilder.addIndexKeys(rowChangeEvent.getAfterKey());
-                insertDataBuilder.addAllColValues(rowChangeEvent.getAfterData());
-                builder.addInsertData(insertDataBuilder);
-            }
-            case UPDATE ->
-            {
-                RetinaProto.UpdateData.Builder updateDataBuilder = RetinaProto.UpdateData.newBuilder();
-                updateDataBuilder.addIndexKeys(rowChangeEvent.getAfterKey());
-                updateDataBuilder.addAllColValues(rowChangeEvent.getAfterData());
-                builder.addUpdateData(updateDataBuilder);
-            }
-            case DELETE ->
-            {
-                RetinaProto.DeleteData.Builder deleteDataBuilder = RetinaProto.DeleteData.newBuilder();
-                deleteDataBuilder.addIndexKeys(rowChangeEvent.getBeforeKey());
-                builder.addDeleteData(deleteDataBuilder);
-            }
-            case UNRECOGNIZED ->
-            {
-                throw new SinkException("Unrecognized op: " + rowChangeEvent.getOp());
-            }
-        }
     }
 
     private void submitFlushTask(List<RowChangeEvent> batch)

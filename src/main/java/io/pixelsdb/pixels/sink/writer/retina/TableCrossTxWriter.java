@@ -63,7 +63,7 @@ public class TableCrossTxWriter extends TableWriter
             List<RowChangeEvent> smallBatch = null;
             List<String> txIds = new ArrayList<>();
             List<String> fullTableName = new ArrayList<>();
-            List<RetinaProto.TableUpdateData.Builder> tableUpdateDataBuilderList = new LinkedList<>();
+            List<RetinaProto.TableUpdateData> tableUpdateData = new LinkedList<>();
             List<Integer> tableUpdateCount = new ArrayList<>();
             for (RowChangeEvent event : batch)
             {
@@ -72,12 +72,13 @@ public class TableCrossTxWriter extends TableWriter
                 {
                     if (smallBatch != null && !smallBatch.isEmpty())
                     {
-                        RetinaProto.TableUpdateData.Builder builder = buildTableUpdateDataFromBatch(txId, smallBatch);
-                        if (builder == null)
+                        RetinaProto.TableUpdateData update =
+                                buildTableUpdateDataFromBatch(txId, smallBatch);
+                        if (update == null)
                         {
                             continue;
                         }
-                        tableUpdateDataBuilderList.add(builder);
+                        tableUpdateData.add(update);
                         tableUpdateCount.add(smallBatch.size());
                     }
                     txIds.add(currTxId);
@@ -90,22 +91,17 @@ public class TableCrossTxWriter extends TableWriter
 
             if (smallBatch != null)
             {
-                RetinaProto.TableUpdateData.Builder builder = buildTableUpdateDataFromBatch(txId, smallBatch);
-                if (builder != null)
+                RetinaProto.TableUpdateData update =
+                        buildTableUpdateDataFromBatch(txId, smallBatch);
+                if (update != null)
                 {
-                    tableUpdateDataBuilderList.add(buildTableUpdateDataFromBatch(txId, smallBatch));
+                    tableUpdateData.add(update);
                     tableUpdateCount.add(smallBatch.size());
                 }
             }
 
             // flushRateLimiter.acquire(batch.size());
             long txStartTime = System.currentTimeMillis();
-
-            List<RetinaProto.TableUpdateData> tableUpdateData = new ArrayList<>(tableUpdateDataBuilderList.size());
-            for (RetinaProto.TableUpdateData.Builder tableUpdateDataItem : tableUpdateDataBuilderList)
-            {
-                tableUpdateData.add(tableUpdateDataItem.build());
-            }
 
             int rowCount = batch.size();
             inFlightControlManager.acquire(1);
@@ -191,7 +187,8 @@ public class TableCrossTxWriter extends TableWriter
         writeLock.unlock();
     }
 
-    protected RetinaProto.TableUpdateData.Builder buildTableUpdateDataFromBatch(String txId, List<RowChangeEvent> smallBatch)
+    protected RetinaProto.TableUpdateData buildTableUpdateDataFromBatch(
+            String txId, List<RowChangeEvent> smallBatch)
     {
         SinkContext sinkContext = SinkContextManager.getInstance().getSinkContext(txId);
         if (sinkContext == null)
@@ -213,23 +210,14 @@ public class TableCrossTxWriter extends TableWriter
         {
             sinkContext.getLock().unlock();
         }
-        RowChangeEvent event1 = smallBatch.get(0);
-
-        RetinaProto.TableUpdateData.Builder builder = RetinaProto.TableUpdateData.newBuilder()
-                .setTimestamp(sinkContext.getTimestamp())
-                .setPrimaryIndexId(event1.getTableMetadata().getPrimaryIndexKeyId())
-                .setTableName(tableName);
         try
         {
-            for (RowChangeEvent smallEvent : smallBatch)
-            {
-                addUpdateData(smallEvent, builder);
-            }
+            return RetinaPayloadBuilder.buildTableUpdateData(
+                    tableName, sinkContext.getTimestamp(), smallBatch);
         } catch (SinkException e)
         {
             throw new RuntimeException("Flush failed for table " + tableName, e);
         }
-        return builder;
     }
 
     @Override

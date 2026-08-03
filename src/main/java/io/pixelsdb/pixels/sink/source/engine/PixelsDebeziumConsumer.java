@@ -34,6 +34,7 @@ import io.pixelsdb.pixels.sink.pipeline.TransactionPipeline;
 import io.pixelsdb.pixels.sink.source.engine.adapter.DebeziumSourceAdapterSelector;
 import io.pixelsdb.pixels.sink.util.MetricsFacade;
 import io.pixelsdb.pixels.sink.util.concurrent.StreamOrderedDecoder;
+import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -75,13 +77,27 @@ public class PixelsDebeziumConsumer
 
     public PixelsDebeziumConsumer()
     {
+        this(null, false);
+    }
+
+    public PixelsDebeziumConsumer(PixelsSinkWriter writer)
+    {
+        this(Objects.requireNonNull(writer, "writer is null"), true);
+    }
+
+    private PixelsDebeziumConsumer(PixelsSinkWriter writer, boolean writerInjected)
+    {
         this.checkTransactionTopic = pixelsSinkConfig.getDebeziumTopicPrefix() + ".transaction";
         this.connectorAdapter = DebeziumSourceAdapterSelector.configured();
         this.rowConverter = new DebeziumConnectRowConverter(
                 TableMetadataRegistry.Instance(), connectorAdapter);
         this.transactionConverter = new DebeziumConnectTransactionConverter(connectorAdapter);
-        this.transactionPipeline = new TransactionPipeline();
-        this.tablePipelineManager = new TablePipelineManager();
+        this.transactionPipeline = writerInjected
+                ? new TransactionPipeline(writer)
+                : new TransactionPipeline();
+        this.tablePipelineManager = writerInjected
+                ? new TablePipelineManager(writer)
+                : new TablePipelineManager();
         this.decodePipeline = new StreamOrderedDecoder(
                 pixelsSinkConfig.getSourceDecodeThreads(),
                 "debezium-decoder");

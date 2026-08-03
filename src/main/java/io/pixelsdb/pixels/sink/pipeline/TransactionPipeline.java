@@ -22,6 +22,8 @@ import io.pixelsdb.pixels.sink.util.BlockingBoundedQueue;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriter;
 import io.pixelsdb.pixels.sink.writer.PixelsSinkWriterFactory;
 
+import java.util.Objects;
+
 public final class TransactionPipeline implements AutoCloseable
 {
     private final BlockingBoundedQueue<SinkProto.TransactionMetadata> eventQueue;
@@ -31,8 +33,13 @@ public final class TransactionPipeline implements AutoCloseable
 
     public TransactionPipeline()
     {
+        this(PixelsSinkWriterFactory.getWriter());
+    }
+
+    public TransactionPipeline(PixelsSinkWriter writer)
+    {
         this.eventQueue = new BlockingBoundedQueue<>(PixelsSinkConstants.MAX_QUEUE_SIZE);
-        this.writer = PixelsSinkWriterFactory.getWriter();
+        this.writer = Objects.requireNonNull(writer, "writer is null");
         this.processor = new TransactionProcessor(eventQueue, writer);
         this.processorThread = new Thread(processor, "transaction-processor");
     }
