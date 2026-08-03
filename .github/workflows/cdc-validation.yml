@@ -1,4 +1,4 @@
-name: CDC Validation
+name: CDC Payload Validation
 
 on:
   pull_request:
@@ -59,7 +59,7 @@ jobs:
           retention-days: 14
 
   cdc-validation:
-    name: CDC validation (${{ matrix.database }})
+    name: CDC payload validation (${{ matrix.database }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -97,14 +97,14 @@ jobs:
           -pl pixels-common,pixels-core,pixels-storage/pixels-storage-localfs
           -am -DskipTests install
 
-      - name: Run CDC validation
+      - name: Run CDC payload validation
         run: >-
           mvn -B -ntp
           -Pcdc-validation
           -Dcdc.database=${{ matrix.database }}
           test
 
-      - name: Upload CDC requests, reports, and logs
+      - name: Upload CDC payloads, reports, and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
