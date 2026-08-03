@@ -67,7 +67,7 @@ class DebeziumRowValueConverterTest
         assertEquals(9223372036854775806L,
                 ByteBuffer.wrap(value.getValues(0).getValue().toByteArray()).getLong());
         assertEquals("TDSQL value  ", value.getValues(1).getValue().toStringUtf8());
-        assertEquals("24710.35", value.getValues(2).getValue().toStringUtf8());
+        assertArrayEquals(longBytes(2471035L), bytes(value, 2));
         assertEquals(0, value.getValues(3).getValue().size());
         assertEquals("", value.getValues(4).getValue().toStringUtf8());
 
@@ -108,7 +108,7 @@ class DebeziumRowValueConverterTest
     }
 
     @Test
-    void shouldPreserveExistingIntegerWidths() throws Exception
+    void shouldEncodeIntegerWidthsExpectedByPixelsColumnVectors() throws Exception
     {
         TypeDescription typeDescription = TypeDescription.createSchemaFromStrings(
                 List.of("tiny", "small", "integer"),
@@ -127,7 +127,7 @@ class DebeziumRowValueConverterTest
         new DebeziumRowValueConverter(typeDescription).parse(row, builder);
 
         assertEquals(1, builder.getValues(0).getValue().size());
-        assertEquals(2, builder.getValues(1).getValue().size());
+        assertEquals(4, builder.getValues(1).getValue().size());
         assertEquals(4, builder.getValues(2).getValue().size());
     }
 
@@ -184,18 +184,30 @@ class DebeziumRowValueConverterTest
         assertArrayEquals(new byte[]{1}, bytes(value, 0));
         assertArrayEquals(new byte[]{0}, bytes(value, 1));
         assertArrayEquals(new byte[]{(byte) 0x80}, bytes(value, 2));
-        assertArrayEquals(shortBytes((short) 0x8123), bytes(value, 3));
+        assertArrayEquals(intBytes((short) 0x8123), bytes(value, 3));
         assertArrayEquals(intBytes(0x81234567), bytes(value, 4));
         assertArrayEquals(longBytes(0x8123456789ABCDEFL), bytes(value, 5));
         assertArrayEquals(intBytes(Float.floatToIntBits(-12.5f)), bytes(value, 6));
         assertArrayEquals(longBytes(Double.doubleToLongBits(Math.PI)), bytes(value, 7));
-        assertArrayEquals(
-                "-123456789.01".getBytes(StandardCharsets.UTF_8), bytes(value, 8));
+        assertArrayEquals(longBytes(-12345678901L), bytes(value, 8));
         assertArrayEquals("Pixels 像素 🌟".getBytes(StandardCharsets.UTF_8), bytes(value, 9));
         assertArrayEquals(fixedBinary, bytes(value, 10));
         assertArrayEquals(
                 new byte[]{0x10, 0x20, (byte) 0xfe, 0x00}, bytes(value, 11));
         assertArrayEquals(new byte[0], bytes(value, 12));
+    }
+
+    @Test
+    void shouldEncodeDecimalsWithThePixelsCanonicalByteFormat() throws Exception
+    {
+        assertArrayEquals(
+                pixelsType("decimal(12,2)").convertSqlStringToByte("-123456789.01"),
+                bytes(parseSingle("decimal(12,2)", decimalSchema(2, 12),
+                        new BigDecimal("-123456789.01")), 0));
+        assertArrayEquals(
+                pixelsType("decimal(20,4)").convertSqlStringToByte("-12345678901234.5678"),
+                bytes(parseSingle("decimal(20,4)", decimalSchema(4, 20),
+                        new BigDecimal("-12345678901234.5678")), 0));
     }
 
     @Test
@@ -399,9 +411,17 @@ class DebeziumRowValueConverterTest
         return rowValue.getValues(index).getValue().toByteArray();
     }
 
-    private static byte[] shortBytes(short value)
+    private static TypeDescription pixelsType(String type) throws Exception
     {
-        return ByteBuffer.allocate(Short.BYTES).putShort(value).array();
+        return TypeDescription.createSchemaFromStrings(List.of("value"), List.of(type))
+                .getChildren().get(0);
+    }
+
+    private static Schema decimalSchema(int scale, int precision)
+    {
+        return Decimal.builder(scale)
+                .parameter("connect.decimal.precision", Integer.toString(precision))
+                .build();
     }
 
     private static byte[] intBytes(int value)

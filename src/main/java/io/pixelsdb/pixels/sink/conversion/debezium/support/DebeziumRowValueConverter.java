@@ -64,7 +64,6 @@ public class DebeziumRowValueConverter
         switch (capacity)
         {
             case Byte.BYTES -> buffer.put((byte) value);
-            case Short.BYTES -> buffer.putShort((short) value);
             case Integer.BYTES -> buffer.putInt(value);
             default -> throw new IllegalArgumentException("Unsupported integer width: " + capacity);
         }
@@ -78,7 +77,7 @@ public class DebeziumRowValueConverter
         {
             String fieldName = schema.getFieldNames().get(i);
             TypeDescription fieldType = schema.getChildren().get(i);
-            builder.addValues(parseCanonicalValue(record.get(fieldName), fieldType).build());
+            builder.addValues(parseCanonicalValue(record.get(fieldName), fieldName, fieldType).build());
         }
     }
 
@@ -249,24 +248,7 @@ public class DebeziumRowValueConverter
 
         if (type.getCategory() == TypeDescription.Category.DECIMAL)
         {
-            BigDecimal normalized;
-            try
-            {
-                normalized = decimal.setScale(type.getScale(), RoundingMode.UNNECESSARY);
-            } catch (ArithmeticException e)
-            {
-                throw new IllegalArgumentException(
-                        "Decimal field '" + fieldName + "' cannot be represented at scale "
-                                + type.getScale() + " without rounding", e);
-            }
-            if (normalized.precision() > type.getPrecision())
-            {
-                throw new IllegalArgumentException(
-                        "Decimal field '" + fieldName + "' exceeds precision "
-                                + type.getPrecision() + ": " + normalized.toPlainString());
-            }
-            return SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFrom(
-                    normalized.toPlainString(), StandardCharsets.UTF_8));
+            return encodeDecimal(decimal, fieldName, type);
         }
 
         if (isSignedInteger(type.getCategory()) && sourceScale == 0)
@@ -283,6 +265,40 @@ public class DebeziumRowValueConverter
             return encodeSignedInteger(integer, fieldName, type);
         }
         throw unsupported(fieldName, CONNECT_DECIMAL + " to Pixels " + type.getCategory());
+    }
+
+    /**
+     * Encodes a decimal into the canonical Pixels byte format, i.e. the big-endian unscaled
+     * value at the target scale: 8 bytes for short decimals and 16 bytes for long decimals.
+     */
+    private static SinkProto.ColumnValue.Builder encodeDecimal(
+            BigDecimal value, String fieldName, TypeDescription type)
+    {
+        final BigDecimal normalized;
+        try
+        {
+            normalized = value.setScale(type.getScale(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException e)
+        {
+            throw new IllegalArgumentException(
+                    "Decimal field '" + fieldName + "' cannot be represented at scale "
+                            + type.getScale() + " without rounding", e);
+        }
+        if (normalized.precision() > type.getPrecision())
+        {
+            throw new IllegalArgumentException(
+                    "Decimal field '" + fieldName + "' exceeds precision "
+                            + type.getPrecision() + ": " + normalized.toPlainString());
+        }
+        BigInteger unscaled = normalized.unscaledValue();
+        if (type.getPrecision() <= TypeDescription.MAX_SHORT_DECIMAL_PRECISION)
+        {
+            return encodeInt64(unscaled.longValueExact());
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(2 * Long.BYTES);
+        buffer.putLong(unscaled.shiftRight(Long.SIZE).longValue());
+        buffer.putLong(unscaled.longValue());
+        return SinkProto.ColumnValue.newBuilder().setValue(ByteString.copyFrom(buffer.array()));
     }
 
     private SinkProto.ColumnValue.Builder encodeBoolean(
@@ -317,28 +333,34 @@ public class DebeziumRowValueConverter
     {
         BigInteger min;
         BigInteger max;
-        int width;
+        int valueBits;
+        int wireWidth;
         switch (type.getCategory())
         {
             case BYTE:
                 min = BigInteger.valueOf(Byte.MIN_VALUE);
                 max = BigInteger.valueOf(Byte.MAX_VALUE);
-                width = Byte.BYTES;
+                valueBits = Byte.SIZE;
+                wireWidth = Byte.BYTES;
                 break;
             case SHORT:
                 min = BigInteger.valueOf(Short.MIN_VALUE);
                 max = BigInteger.valueOf(Short.MAX_VALUE);
-                width = Short.BYTES;
+                valueBits = Short.SIZE;
+                // Pixels encodes SHORT with the same width as INT.
+                wireWidth = Integer.BYTES;
                 break;
             case INT:
                 min = BigInteger.valueOf(Integer.MIN_VALUE);
                 max = BigInteger.valueOf(Integer.MAX_VALUE);
-                width = Integer.BYTES;
+                valueBits = Integer.SIZE;
+                wireWidth = Integer.BYTES;
                 break;
             case LONG:
                 min = BigInteger.valueOf(Long.MIN_VALUE);
                 max = BigInteger.valueOf(Long.MAX_VALUE);
-                width = Long.BYTES;
+                valueBits = Long.SIZE;
+                wireWidth = Long.BYTES;
                 break;
             default:
                 throw unsupported(fieldName, "integer to Pixels " + type.getCategory());
@@ -347,14 +369,14 @@ public class DebeziumRowValueConverter
         {
             throw new IllegalArgumentException(
                     "Integer field '" + fieldName + "' is outside the signed "
-                            + (width * Byte.SIZE) + "-bit range: " + value);
+                            + valueBits + "-bit range: " + value);
         }
-        if (width == Long.BYTES)
+        if (wireWidth == Long.BYTES)
         {
             return encodeInt64(value.longValue());
         }
         SinkProto.ColumnValue.Builder builder = SinkProto.ColumnValue.newBuilder();
-        buildInt32(value.intValue(), width, builder);
+        buildInt32(value.intValue(), wireWidth, builder);
         return builder;
     }
 
@@ -624,7 +646,7 @@ public class DebeziumRowValueConverter
             }
             case SHORT:
             {
-                buildInt32(valueNode.asInt(), Short.BYTES, columnValueBuilder);
+                buildInt32(valueNode.asInt(), Integer.BYTES, columnValueBuilder);
                 break;
             }
             case INT:
@@ -661,13 +683,7 @@ public class DebeziumRowValueConverter
             }
             case DECIMAL:
             {
-                String value = parseDecimal(valueNode, type).toString();
-                columnValueBuilder.setValue(ByteString.copyFrom(value, StandardCharsets.UTF_8));
-                // columnValueBuilder.setType(PixelsProto.Type.newBuilder()
-//                        .setKind(PixelsProto.Type.Kind.DECIMAL)
-//                        .setDimension(type.getPrecision())
-//                        .setScale(type.getScale()));
-                break;
+                return encodeDecimal(parseDecimal(valueNode, type), fieldName, type);
             }
             case BINARY:
             {
@@ -721,7 +737,8 @@ public class DebeziumRowValueConverter
         return columnValueBuilder;
     }
 
-    private SinkProto.ColumnValue.Builder parseCanonicalValue(Object raw, TypeDescription type)
+    private SinkProto.ColumnValue.Builder parseCanonicalValue(
+            Object raw, String fieldName, TypeDescription type)
     {
         if (raw == null)
         {
@@ -730,7 +747,7 @@ public class DebeziumRowValueConverter
         }
         if (raw instanceof JsonNode jsonNode)
         {
-            return parseValue(jsonNode, "", type);
+            return parseValue(jsonNode, fieldName, type);
         }
 
         SinkProto.ColumnValue.Builder builder = SinkProto.ColumnValue.newBuilder();
@@ -740,7 +757,7 @@ public class DebeziumRowValueConverter
                 buildInt32(((Number) raw).intValue(), Byte.BYTES, builder);
                 break;
             case SHORT:
-                buildInt32(((Number) raw).intValue(), Short.BYTES, builder);
+                buildInt32(((Number) raw).intValue(), Integer.BYTES, builder);
                 break;
             case INT:
                 buildInt32(((Number) raw).intValue(), Integer.BYTES, builder);
@@ -763,12 +780,7 @@ public class DebeziumRowValueConverter
                 builder.setValue(ByteString.copyFrom(raw.toString(), StandardCharsets.UTF_8));
                 break;
             case DECIMAL:
-            {
-                BigDecimal decimal = toBigDecimal(raw, type);
-                builder.setValue(ByteString.copyFrom(
-                        decimal.toPlainString(), StandardCharsets.UTF_8));
-                break;
-            }
+                return encodeDecimal(toBigDecimal(raw, type), fieldName, type);
             case BINARY:
             case VARBINARY:
                 builder.setValue(ByteString.copyFrom(toBytes(raw)));

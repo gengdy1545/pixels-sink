@@ -33,6 +33,7 @@ import org.testcontainers.containers.JdbcDatabaseContainer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -66,6 +67,10 @@ abstract class AbstractCdcValidationTest
 {
     static final String DATABASE_NAME = "cdc_verify";
     static final String TABLE_NAME = "records";
+    /**
+     * The scale of decimal_value in the CDC fixtures, i.e. decimal(18,4).
+     */
+    static final int DECIMAL_SCALE = 4;
     static final long SNAPSHOT_ID = 1001L;
     static final long MUTATION_ID = 2002L;
 
@@ -552,8 +557,8 @@ abstract class AbstractCdcValidationTest
 
     protected static ByteString shortValue(int value)
     {
-        return ByteString.copyFrom(
-                ByteBuffer.allocate(Short.BYTES).putShort((short) value).array());
+        // Pixels encodes SHORT with the same width as INT.
+        return intValue((short) value);
     }
 
     protected static ByteString intValue(int value)
@@ -580,7 +585,10 @@ abstract class AbstractCdcValidationTest
 
     protected static ByteString decimalValue(String value)
     {
-        return utf8(new BigDecimal(value).toPlainString());
+        // decimal_value is a short decimal, encoded as its big-endian unscaled long.
+        return longValue(new BigDecimal(value)
+                .setScale(DECIMAL_SCALE, RoundingMode.UNNECESSARY)
+                .unscaledValue().longValueExact());
     }
 
     protected static ByteString utf8(String value)
