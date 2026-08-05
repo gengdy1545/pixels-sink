@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 PixelsDB.
+ * Copyright 2023 PixelsDB.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,17 +12,21 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
-
 package io.pixelsdb.pixels.sink.config;
 
-public final class PixelsSinkConstants {
+public final class PixelsSinkConstants
+{
     public static final String ROW_RECORD_KAFKA_PROP_FACTORY = "row-record";
     public static final String TRANSACTION_KAFKA_PROP_FACTORY = "transaction";
-    public static final int MONITOR_NUM = 2;
-
+    public static final String KAFKA_VALUE_FORMAT = "pixels.sink.kafka.value.format";
+    /** Sink-side CDC dialect for envelope normalization: {@code mysql} or {@code postgresql}. */
+    public static final String SINK_DEBEZIUM_DIALECT = "sink.debezium.dialect";
+    public static final String DEBEZIUM_CONNECTOR_CLASS = "debezium.connector.class";
+    public static final int MAX_QUEUE_SIZE = 1_000;
     public static final String SNAPSHOT_TX_PREFIX = "SNAPSHOT-";
 
-    private PixelsSinkConstants() {}
+    private PixelsSinkConstants()
+    {
+    }
 }

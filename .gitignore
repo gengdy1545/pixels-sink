@@ -22,7 +22,6 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 
-.idea
 build
 target
 .classpath*
@@ -41,6 +40,7 @@ mvnw.cmd
 logs/
 package-info.java
 *.sql
+!src/test/resources/cdc/**/*.sql
 *.log
 *.txt
 *.csv
@@ -48,3 +48,21 @@ resources/*.xml
 *.so
 *.o
 .vscode
+.idea
+
+data/
+tmp/
+
+!requirements.txt
+freshness*.png
+rate*.png
+resulti7i/
+result1k2_2/
+result_lance
+cluster*.png
+pixels-sink.out
+/*.png
+/*.csv
+*logs/*.out
+*logs/*.png
+*logs/**/*.png

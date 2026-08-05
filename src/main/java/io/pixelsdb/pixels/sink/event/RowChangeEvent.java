@@ -12,224 +12,337 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
-
 package io.pixelsdb.pixels.sink.event;
 
 import com.google.protobuf.ByteString;
-import io.pixelsdb.pixels.common.metadata.domain.SecondaryIndex;
+import io.pixelsdb.pixels.common.metadata.SchemaTableName;
+import io.pixelsdb.pixels.common.metadata.domain.SinglePointIndex;
+import io.pixelsdb.pixels.common.utils.RetinaUtils;
 import io.pixelsdb.pixels.core.TypeDescription;
 import io.pixelsdb.pixels.index.IndexProto;
-import io.pixelsdb.pixels.retina.RetinaProto;
 import io.pixelsdb.pixels.sink.SinkProto;
+import io.pixelsdb.pixels.sink.exception.SinkException;
 import io.pixelsdb.pixels.sink.metadata.TableMetadata;
 import io.pixelsdb.pixels.sink.metadata.TableMetadataRegistry;
-import io.pixelsdb.pixels.sink.monitor.MetricsFacade;
-import io.prometheus.client.Summary;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
-public class RowChangeEvent {
+public class RowChangeEvent
+{
 
     @Getter
     private final SinkProto.RowRecord rowRecord;
-    private IndexProto.IndexKey indexKey;
-    private boolean isIndexKeyInited;
-    @Setter
-    private SecondaryIndex indexInfo;
+    @Getter
+    private final TypeDescription schema;
     /**
      * timestamp from pixels transaction server
      */
     @Setter
     @Getter
     private long timeStamp;
-
-    @Getter
-    private final TypeDescription schema;
-
     @Getter
     private String topic;
-
     @Getter
     private TableMetadata tableMetadata = null;
-
-    private final MetricsFacade metricsFacade = MetricsFacade.getInstance();
-    private Summary.Timer latencyTimer;
     private Map<String, SinkProto.ColumnValue> beforeValueMap;
     private Map<String, SinkProto.ColumnValue> afterValueMap;
+    @Getter
+    private IndexProto.IndexKey beforeKey;
+    @Getter
+    private IndexProto.IndexKey afterKey;
 
-    public RowChangeEvent(SinkProto.RowRecord rowRecord) {
+    private boolean indexKeyInited = false;
+
+    @Getter
+    private long tableId;
+
+    @Getter
+    private SchemaTableName schemaTableName;
+
+    public RowChangeEvent(SinkProto.RowRecord rowRecord) throws SinkException
+    {
+        TableMetadataRegistry tableMetadataRegistry = TableMetadataRegistry.Instance();
         this.rowRecord = rowRecord;
-        this.schema = null;
+        this.schema = tableMetadataRegistry.getTypeDescription(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable());
+        this.tableMetadata = tableMetadataRegistry.getMetadata(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable());
+        init();
+        initIndexKey();
     }
 
+    public RowChangeEvent(SinkProto.RowRecord rowRecord, TypeDescription schema) throws SinkException
+    {
+        this(rowRecord, schema, TableMetadataRegistry.Instance().getMetadata(
+                rowRecord.getSource().getDb(), rowRecord.getSource().getTable()));
+    }
 
-    public RowChangeEvent(SinkProto.RowRecord rowRecord, TypeDescription schema) {
+    public RowChangeEvent(
+            SinkProto.RowRecord rowRecord,
+            TypeDescription schema,
+            TableMetadata tableMetadata) throws SinkException
+    {
         this.rowRecord = rowRecord;
         this.schema = schema;
+        this.tableMetadata = tableMetadata;
+        init();
     }
 
-    private void initColumnValueMap() {
-        if (hasBeforeData()) {
+    protected static int getBucketFromIndexKey(IndexProto.IndexKey indexKey)
+    {
+        return getBucketIdFromByteBuffer(indexKey.getKey());
+    }
+
+    protected static int getBucketIdFromByteBuffer(ByteString byteString)
+    {
+        return RetinaUtils.getBucketIdFromByteBuffer(byteString);
+    }
+
+    private void init() throws SinkException
+    {
+        this.tableId = tableMetadata == null ? 0 : tableMetadata.getTableId();
+        this.schemaTableName = new SchemaTableName(getSchemaName(), getTable());
+
+        initColumnValueMap();
+    }
+
+    private void initColumnValueMap()
+    {
+        if (hasBeforeData())
+        {
+            this.beforeValueMap = new HashMap<>();
             initColumnValueMap(rowRecord.getBefore(), beforeValueMap);
         }
 
-        if (hasAfterData()) {
+        if (hasAfterData())
+        {
+            this.afterValueMap = new HashMap<>();
             initColumnValueMap(rowRecord.getAfter(), afterValueMap);
         }
     }
 
-    private void initColumnValueMap(SinkProto.RowValue rowValue, Map<String, SinkProto.ColumnValue> map) {
-        rowValue.getValuesList().forEach(
-                column -> {
-                    map.put(column.getName(), column);
-                }
-        );
+    private void initColumnValueMap(SinkProto.RowValue rowValue, Map<String, SinkProto.ColumnValue> map)
+    {
+        IntStream.range(0, schema.getFieldNames().size())
+                .forEach(i -> map.put(schema.getFieldNames().get(i), rowValue.getValuesList().get(i)));
     }
 
-    public void setTimeStamp(long timeStamp) {
-        this.timeStamp = timeStamp;
-    }
-
-    public void setIndexInfo(SecondaryIndex indexInfo) {
-        this.indexInfo = indexInfo;
-    }
-
-    public IndexProto.IndexKey getIndexKey() {
-        if (!isIndexKeyInited) {
-            initIndexKey();
-        }
-        return indexKey;
-    }
-
-    public void initIndexKey() {
-        if (!hasAfterData()) {
-            // We do not need to generate an index key for insert request
+    public void initIndexKey() throws SinkException
+    {
+        if (indexKeyInited)
+        {
             return;
         }
 
-        this.tableMetadata = TableMetadataRegistry.Instance().getMetadata(
-                this.rowRecord.getSource().getDb(),
-                this.rowRecord.getSource().getTable());
-        List<String> keyColumnNames = tableMetadata.getKeyColumnNames();
-        ByteBuffer byteBuffer = ByteBuffer.allocate(1024);
-
-
-        for (int i = 0; i < keyColumnNames.size(); i++) {
-            String name = keyColumnNames.get(i);
-            byteBuffer.put(afterValueMap.get(name).getValue().toByteArray());
-            if (i < keyColumnNames.size() - 1) {
-                byteBuffer.putChar(':');
-            }
+        if (this.tableMetadata == null)
+        {
+            throw new SinkException("Row change table metadata is missing");
         }
 
-        this.indexKey = IndexProto.IndexKey.newBuilder()
+        if (!this.tableMetadata.hasPrimaryIndex())
+        {
+            return;
+        }
+        if (hasBeforeData())
+        {
+            this.beforeKey = generateIndexKey(tableMetadata, beforeValueMap);
+        }
+
+        if (hasAfterData())
+        {
+            this.afterKey = generateIndexKey(tableMetadata, afterValueMap);
+        }
+
+        indexKeyInited = true;
+    }
+
+    public void updateIndexKey() throws SinkException
+    {
+        if (hasBeforeData())
+        {
+            this.beforeKey = generateIndexKey(tableMetadata, beforeValueMap);
+        }
+
+        if (hasAfterData())
+        {
+            this.afterKey = generateIndexKey(tableMetadata, afterValueMap);
+        }
+    }
+
+    public int getBeforeBucketFromIndex()
+    {
+        assert indexKeyInited;
+        if (hasBeforeData())
+        {
+            return getBucketFromIndexKey(beforeKey);
+        }
+        throw new IllegalCallerException("Event dosen't have before data");
+    }
+
+    public boolean isPkChanged() throws SinkException
+    {
+        if (!indexKeyInited)
+        {
+            initIndexKey();
+        }
+
+        if (getOp() != SinkProto.OperationType.UPDATE)
+        {
+            return false;
+        }
+
+        ByteString beforeKey = getBeforeKey().getKey();
+        ByteString afterKey = getAfterKey().getKey();
+
+        return !beforeKey.equals(afterKey);
+    }
+
+    public int getAfterBucketFromIndex()
+    {
+        assert indexKeyInited;
+        if (hasAfterData())
+        {
+            return getBucketFromIndexKey(afterKey);
+        }
+        throw new IllegalCallerException("Event dosen't have after data");
+    }
+
+    private IndexProto.IndexKey generateIndexKey(TableMetadata tableMetadata, Map<String, SinkProto.ColumnValue> rowValue)
+    {
+        List<String> keyColumnNames = tableMetadata.getKeyColumnNames();
+        SinglePointIndex index = tableMetadata.getIndex();
+        int len = keyColumnNames.size();
+        List<ByteString> keyColumnValues = new ArrayList<>(len);
+        int keySize = 0;
+        for (String keyColumnName : keyColumnNames)
+        {
+            ByteString value = rowValue.get(keyColumnName).getValue();
+            keyColumnValues.add(value);
+            keySize += value.size();
+        }
+
+        ByteBuffer byteBuffer = ByteBuffer.allocate(keySize);
+        for (ByteString value : keyColumnValues)
+        {
+            byteBuffer.put(value.toByteArray());
+        }
+
+        return IndexProto.IndexKey.newBuilder()
                 .setTimestamp(timeStamp)
-                .setKey(ByteString.copyFrom(byteBuffer))
-                .setIndexId(indexInfo.getId())
+                .setKey(ByteString.copyFrom(byteBuffer.rewind()))
+                .setIndexId(index.getId())
+                .setTableId(tableMetadata.getTable().getId())
                 .build();
-        isIndexKeyInited = true;
     }
 
-
-    // TODO change
-    public RetinaProto.ColumnValue getBeforePk() {
-        return rowRecord.getBefore().getValues(0).getValue();
-    }
-
-    public RetinaProto.ColumnValue getAfterPk() {
-        return rowRecord.getBefore().getValues(0).getValue();
-    }
-
-    public String getSourceTable() {
+    public String getSourceTable()
+    {
         return rowRecord.getSource().getTable();
     }
 
-    public SinkProto.TransactionInfo getTransaction() {
+    public SinkProto.TransactionInfo getTransaction()
+    {
         return rowRecord.getTransaction();
     }
 
-    public String getTable() {
+    public String getTable()
+    {
         return rowRecord.getSource().getTable();
     }
 
-    public String getFullTableName() {
-        return getSchemaName() + "." + getTable();
-    }
-    // TODO(AntiO2): How to Map Schema Names Between Source DB and Pixels
-    public String getSchemaName() {
-        return rowRecord.getSource().getDb();
-        // return rowRecord.getSource().getSchema();
+    public String getFullTableName()
+    {
+        SinkProto.SourceInfo source = rowRecord.getSource();
+        String namespace = source.getSchema().isBlank() ? source.getDb() : source.getSchema();
+        return namespace + "." + source.getTable();
     }
 
-    public boolean hasError() {
+    public String getSchemaName()
+    {
+        return rowRecord.getSource().getDb();
+    }
+
+    public boolean hasError()
+    {
         return false;
     }
 
-    public SinkProto.ErrorInfo getErrorInfo() {
-        return rowRecord.getError();
-    }
-
-    public String getDb() {
+    public String getDb()
+    {
         return rowRecord.getSource().getDb();
     }
 
-    public boolean isDelete() {
+    public boolean isDelete()
+    {
         return getOp() == SinkProto.OperationType.DELETE;
     }
 
-    public boolean isInsert() {
+    public boolean isInsert()
+    {
         return getOp() == SinkProto.OperationType.INSERT;
     }
 
-    public boolean isSnapshot() {
+    public boolean isSnapshot()
+    {
         return getOp() == SinkProto.OperationType.SNAPSHOT;
     }
-    public boolean isUpdate() {
+
+    public boolean isUpdate()
+    {
         return getOp() == SinkProto.OperationType.UPDATE;
     }
 
-    public boolean hasBeforeData() {
+    public boolean hasBeforeData()
+    {
         return isUpdate() || isDelete();
     }
 
-    public boolean hasAfterData() {
+    public boolean hasAfterData()
+    {
         return isUpdate() || isInsert() || isSnapshot();
     }
 
-    public Long getTimeStampUs() {
-        return rowRecord.getTsUs();
-    }
-
-    public int getPkId() {
-        return tableMetadata.getPkId();
-    }
-
-    public void startLatencyTimer() {
-        this.latencyTimer = metricsFacade.startProcessLatencyTimer();
-    }
-
-    public void endLatencyTimer() {
-        if (latencyTimer != null) {
-            this.latencyTimer.close();
-        }
-
-    }
-
-    public SinkProto.OperationType getOp() {
+    public SinkProto.OperationType getOp()
+    {
         return rowRecord.getOp();
     }
 
-    public SinkProto.RowValue getBeforeData() {
+    public SinkProto.RowValue getBefore()
+    {
         return rowRecord.getBefore();
     }
 
-    public SinkProto.RowValue getAfterData() {
+    public SinkProto.RowValue getAfter()
+    {
         return rowRecord.getAfter();
+    }
+
+    public List<ByteString> getAfterData()
+    {
+        List<SinkProto.ColumnValue> colValues = rowRecord.getAfter().getValuesList();
+        List<ByteString> colValueList = new ArrayList<>(colValues.size());
+        for (SinkProto.ColumnValue col : colValues)
+        {
+            colValueList.add(col.getValue());
+        }
+        return colValueList;
+    }
+
+    @Override
+    public String toString()
+    {
+        String sb = "RowChangeEvent{" +
+                rowRecord.getSource().getDb() +
+                "." + rowRecord.getSource().getTable() +
+                rowRecord.getTransaction().getId();
+        return sb;
     }
 }

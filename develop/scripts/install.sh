@@ -1,5 +1,24 @@
 #!/bin/bash
 
+# Copyright 2026 PixelsDB.
+#
+# This file is part of Pixels.
+#
+# Pixels is free software: you can redistribute it and/or modify
+# it under the terms of the Affero GNU General Public License as
+# published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# Pixels is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# Affero GNU General Public License for more details.
+#
+# You should have received a copy of the Affero GNU General Public
+# License along with Pixels.  If not, see
+# <https://www.gnu.org/licenses/>.
+
+
 usage() {
   cat <<EOF
 
@@ -110,6 +129,7 @@ try_command curl -f -X POST -H "Content-Type: application/json" -d @${CONFIG_DIR
 check_fatal_exit "Register PostgreSQL Source Connector Fail"
   if [[ x${enable_tpch} == x"on" && x${load_postgres} == x"on" ]]; then
     docker exec pixels_postgres_source_db sh -c " psql -Upixels -d pixels_realtime_crud < /example/sql/dss.ddl"
+    docker exec pixels_postgres_source_db sh -c " psql -Upixels -d pixels_realtime_crud < /example/sql/dss.ri"
     docker exec pixels_postgres_source_db sh -c " psql -Upixels -d pixels_realtime_crud < /load.sql"
   fi
 fi

@@ -12,34 +12,37 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
-
 package io.pixelsdb.pixels.sink;
 
 import io.pixelsdb.pixels.common.sink.SinkProvider;
 import io.pixelsdb.pixels.common.utils.ConfigFactory;
 import io.pixelsdb.pixels.sink.config.factory.PixelsSinkConfigFactory;
-import io.pixelsdb.pixels.sink.monitor.MetricsFacade;
-import io.pixelsdb.pixels.sink.monitor.SinkMonitor;
+import io.pixelsdb.pixels.sink.source.SinkSource;
+import io.pixelsdb.pixels.sink.source.SinkSourceFactory;
+import io.pixelsdb.pixels.sink.util.MetricsFacade;
 
-public class PixelsSinkProvider implements SinkProvider {
-    private SinkMonitor sinkMonitor;
+public class PixelsSinkProvider implements SinkProvider
+{
+    private SinkSource sinkSource;
 
-    public void start(ConfigFactory config) {
+    public void start(ConfigFactory config)
+    {
         PixelsSinkConfigFactory.initialize(config);
-        MetricsFacade.initialize();
-        sinkMonitor = new SinkMonitor();
-        sinkMonitor.startSinkMonitor();
+        MetricsFacade.getInstance();
+        sinkSource = SinkSourceFactory.createSinkSource();
+        sinkSource.start();
     }
 
     @Override
-    public void shutdown() {
-        sinkMonitor.stopMonitor();
+    public void shutdown()
+    {
+        sinkSource.close();
     }
 
     @Override
-    public boolean isRunning() {
-        return sinkMonitor.isRunning();
+    public boolean isRunning()
+    {
+        return sinkSource.isRunning();
     }
 }

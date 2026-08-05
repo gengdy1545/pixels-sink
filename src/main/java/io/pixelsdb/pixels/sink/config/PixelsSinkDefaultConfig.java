@@ -12,37 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
-
 package io.pixelsdb.pixels.sink.config;
 
-import io.pixelsdb.pixels.sink.deserializer.RowChangeEventJsonDeserializer;
-import org.apache.kafka.common.serialization.StringDeserializer;
-
-public class PixelsSinkDefaultConfig {
+public class PixelsSinkDefaultConfig
+{
+    public static final String DATA_SOURCE = "engine";
+    public static final String SOURCE_DECODE_THREADS = "4";
     public static final String PROPERTIES_PATH = "pixels-sink.properties";
     public static final String CSV_SINK_PATH = "./data";
 
-    public static final String KEY_DESERIALIZER = StringDeserializer.class.getName(); // org.apache.kafka.common.serialization.StringDeserializer
-    public static final String VALUE_DESERIALIZER = RowChangeEventJsonDeserializer.class.getName();
-
-    public static final String SINK_MODE = "csv";
+    public static final String SINK_MODE = "retina";
 
     public static final int SINK_CSV_RECORD_FLUSH = 1000;
 
     public static final int SINK_THREAD = 32;
     public static final int SINK_CONSUMER_THREAD = 8;
-    //    sink.remote.host=localhost
-//    sink.remote.port=229422
-//    sink.batch.size=100
-//    sink.timeout.ms=5000
-//    sink.flush.interval.ms=5000
-//    sink.max.retries=3
 
     // Transaction Service
     public static final int TRANSACTION_BATCH_SIZE = 100;
-
 
     // REMOTE BUFFER
     public static final String SINK_REMOTE_HOST = "localhost";
@@ -52,6 +40,7 @@ public class PixelsSinkDefaultConfig {
     public static final int SINK_FLUSH_INTERVAL_MS = 5000;
     public static final int SINK_MAX_RETRIES = 3;
     public static final boolean SINK_CSV_ENABLE_HEADER = false;
+    public static final String SINK_RETINA_MODE = "stub";
 
     // Monitor Config
     public static final boolean SINK_MONITOR_ENABLED = true;
@@ -59,5 +48,6 @@ public class PixelsSinkDefaultConfig {
 
     // Mock RPC
     public static final boolean SINK_RPC_ENABLED = true;
-    public static final int MOCK_RPC_DELAY = 100;
+    public static final String MAX_RECORDS_PER_FILE = "100000";
+    public static final String STORAGE_MODE = "stream";
 }
