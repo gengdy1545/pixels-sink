@@ -336,6 +336,20 @@ public class RowChangeEvent
         return colValueList;
     }
 
+    /**
+     * Parallel to {@link #getAfterData()}: {@code true} means SQL NULL at that column.
+     */
+    public List<Boolean> getAfterIsNull()
+    {
+        List<SinkProto.ColumnValue> colValues = rowRecord.getAfter().getValuesList();
+        List<Boolean> isNullList = new ArrayList<>(colValues.size());
+        for (SinkProto.ColumnValue col : colValues)
+        {
+            isNullList.add(col.getIsNull());
+        }
+        return isNullList;
+    }
+
     @Override
     public String toString()
     {
