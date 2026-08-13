@@ -64,6 +64,7 @@ public class DebeziumRowValueConverter
         switch (capacity)
         {
             case Byte.BYTES -> buffer.put((byte) value);
+            case Short.BYTES -> buffer.putShort((short) value);
             case Integer.BYTES -> buffer.putInt(value);
             default -> throw new IllegalArgumentException("Unsupported integer width: " + capacity);
         }
@@ -347,8 +348,7 @@ public class DebeziumRowValueConverter
                 min = BigInteger.valueOf(Short.MIN_VALUE);
                 max = BigInteger.valueOf(Short.MAX_VALUE);
                 valueBits = Short.SIZE;
-                // Pixels encodes SHORT with the same width as INT.
-                wireWidth = Integer.BYTES;
+                wireWidth = Short.BYTES;
                 break;
             case INT:
                 min = BigInteger.valueOf(Integer.MIN_VALUE);
@@ -646,7 +646,7 @@ public class DebeziumRowValueConverter
             }
             case SHORT:
             {
-                buildInt32(valueNode.asInt(), Integer.BYTES, columnValueBuilder);
+                buildInt32(valueNode.asInt(), Short.BYTES, columnValueBuilder);
                 break;
             }
             case INT:
@@ -757,7 +757,7 @@ public class DebeziumRowValueConverter
                 buildInt32(((Number) raw).intValue(), Byte.BYTES, builder);
                 break;
             case SHORT:
-                buildInt32(((Number) raw).intValue(), Integer.BYTES, builder);
+                buildInt32(((Number) raw).intValue(), Short.BYTES, builder);
                 break;
             case INT:
                 buildInt32(((Number) raw).intValue(), Integer.BYTES, builder);

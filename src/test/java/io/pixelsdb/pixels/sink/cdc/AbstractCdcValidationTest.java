@@ -557,8 +557,8 @@ abstract class AbstractCdcValidationTest
 
     protected static ByteString shortValue(int value)
     {
-        // Pixels encodes SHORT with the same width as INT.
-        return intValue((short) value);
+        return ByteString.copyFrom(
+                ByteBuffer.allocate(Short.BYTES).putShort((short) value).array());
     }
 
     protected static ByteString intValue(int value)
