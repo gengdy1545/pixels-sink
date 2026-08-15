@@ -130,7 +130,7 @@ class DebeziumRowValueConverterTest
         new DebeziumRowValueConverter(typeDescription).parse(row, builder);
 
         assertEquals(1, builder.getValues(0).getValue().size());
-        assertEquals(4, builder.getValues(1).getValue().size());
+        assertEquals(2, builder.getValues(1).getValue().size());
         assertEquals(4, builder.getValues(2).getValue().size());
     }
 
@@ -187,7 +187,7 @@ class DebeziumRowValueConverterTest
         assertArrayEquals(new byte[]{1}, bytes(value, 0));
         assertArrayEquals(new byte[]{0}, bytes(value, 1));
         assertArrayEquals(new byte[]{(byte) 0x80}, bytes(value, 2));
-        assertArrayEquals(intBytes((short) 0x8123), bytes(value, 3));
+        assertArrayEquals(shortBytes((short) 0x8123), bytes(value, 3));
         assertArrayEquals(intBytes(0x81234567), bytes(value, 4));
         assertArrayEquals(longBytes(0x8123456789ABCDEFL), bytes(value, 5));
         assertArrayEquals(intBytes(Float.floatToIntBits(-12.5f)), bytes(value, 6));
@@ -426,6 +426,11 @@ class DebeziumRowValueConverterTest
         return Decimal.builder(scale)
                 .parameter("connect.decimal.precision", Integer.toString(precision))
                 .build();
+    }
+
+    private static byte[] shortBytes(short value)
+    {
+        return ByteBuffer.allocate(Short.BYTES).putShort(value).array();
     }
 
     private static byte[] intBytes(int value)
