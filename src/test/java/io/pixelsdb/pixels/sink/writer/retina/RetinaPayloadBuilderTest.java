@@ -69,12 +69,15 @@ class RetinaPayloadBuilderTest
         assertEquals(2, tableUpdate.getInsertDataCount());
         assertRow(tableUpdate.getInsertData(0).getIndexKeys(0),
                 tableUpdate.getInsertData(0).getColValuesList(), "1", "insert");
+        assertEquals(List.of(false, false), tableUpdate.getInsertData(0).getIsNullList());
         assertRow(tableUpdate.getInsertData(1).getIndexKeys(0),
                 tableUpdate.getInsertData(1).getColValuesList(), "2", "snapshot");
+        assertEquals(List.of(false, false), tableUpdate.getInsertData(1).getIsNullList());
 
         assertEquals(1, tableUpdate.getUpdateDataCount());
         assertRow(tableUpdate.getUpdateData(0).getIndexKeys(0),
                 tableUpdate.getUpdateData(0).getColValuesList(), "3", "after");
+        assertEquals(List.of(false, false), tableUpdate.getUpdateData(0).getIsNullList());
 
         assertEquals(1, tableUpdate.getDeleteDataCount());
         assertEquals(bytes("4"), tableUpdate.getDeleteData(0).getIndexKeys(0).getKey());
@@ -83,6 +86,41 @@ class RetinaPayloadBuilderTest
         assertEquals(TIMESTAMP, tableUpdate.getDeleteData(0).getIndexKeys(0).getTimestamp());
 
         assertEquals(request, RetinaProto.UpdateRecordRequest.parseFrom(request.toByteArray()));
+    }
+
+    @Test
+    void shouldPropagateIsNullAlongsideColValues() throws Exception
+    {
+        TableMetadata metadata = tableMetadata();
+        RowChangeEvent withNull = event(
+                SinkProto.OperationType.INSERT,
+                null,
+                SinkProto.RowValue.newBuilder()
+                        .addValues(SinkProto.ColumnValue.newBuilder().setValue(bytes("5")))
+                        .addValues(SinkProto.ColumnValue.newBuilder()
+                                .setValue(ByteString.EMPTY)
+                                .setIsNull(true))
+                        .build(),
+                metadata);
+        RowChangeEvent emptyString = event(
+                SinkProto.OperationType.UPDATE,
+                row("6", "before"),
+                SinkProto.RowValue.newBuilder()
+                        .addValues(SinkProto.ColumnValue.newBuilder().setValue(bytes("6")))
+                        .addValues(SinkProto.ColumnValue.newBuilder().setValue(ByteString.EMPTY))
+                        .build(),
+                metadata);
+
+        RetinaProto.TableUpdateData tableUpdate =
+                RetinaPayloadBuilder.buildTableUpdateData(
+                        TABLE_NAME, TIMESTAMP, List.of(withNull, emptyString));
+
+        assertEquals(List.of(false, true), tableUpdate.getInsertData(0).getIsNullList());
+        assertEquals(bytes("5"), tableUpdate.getInsertData(0).getColValues(0));
+        assertEquals(ByteString.EMPTY, tableUpdate.getInsertData(0).getColValues(1));
+
+        assertEquals(List.of(false, false), tableUpdate.getUpdateData(0).getIsNullList());
+        assertEquals(ByteString.EMPTY, tableUpdate.getUpdateData(0).getColValues(1));
     }
 
     private static void assertRow(

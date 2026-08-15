@@ -34,6 +34,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,7 +70,9 @@ class DebeziumRowValueConverterTest
         assertEquals("TDSQL value  ", value.getValues(1).getValue().toStringUtf8());
         assertArrayEquals(longBytes(2471035L), bytes(value, 2));
         assertEquals(0, value.getValues(3).getValue().size());
+        assertTrue(value.getValues(3).getIsNull());
         assertEquals("", value.getValues(4).getValue().toStringUtf8());
+        assertFalse(value.getValues(4).getIsNull());
 
         ObjectNode jsonRow = new ObjectMapper().createObjectNode();
         jsonRow.put("id", 9223372036854775806L);
@@ -195,6 +198,7 @@ class DebeziumRowValueConverterTest
         assertArrayEquals(
                 new byte[]{0x10, 0x20, (byte) 0xfe, 0x00}, bytes(value, 11));
         assertArrayEquals(new byte[0], bytes(value, 12));
+        assertTrue(value.getValues(12).getIsNull());
     }
 
     @Test

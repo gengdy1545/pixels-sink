@@ -78,14 +78,16 @@ public final class RetinaPayloadBuilder
             {
                 RetinaProto.InsertData.Builder insertData = RetinaProto.InsertData.newBuilder()
                         .addIndexKeys(event.getAfterKey())
-                        .addAllColValues(event.getAfterData());
+                        .addAllColValues(event.getAfterData())
+                        .addAllIsNull(event.getAfterIsNull());
                 builder.addInsertData(insertData);
             }
             case UPDATE ->
             {
                 RetinaProto.UpdateData.Builder updateData = RetinaProto.UpdateData.newBuilder()
                         .addIndexKeys(event.getAfterKey())
-                        .addAllColValues(event.getAfterData());
+                        .addAllColValues(event.getAfterData())
+                        .addAllIsNull(event.getAfterIsNull());
                 builder.addUpdateData(updateData);
             }
             case DELETE ->

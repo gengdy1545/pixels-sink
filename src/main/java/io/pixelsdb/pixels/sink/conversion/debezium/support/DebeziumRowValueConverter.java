@@ -128,7 +128,9 @@ public class DebeziumRowValueConverter
         }
         if (raw == null)
         {
-            return SinkProto.ColumnValue.newBuilder().setValue(ByteString.EMPTY);
+            return SinkProto.ColumnValue.newBuilder()
+                    .setValue(ByteString.EMPTY)
+                    .setIsNull(true);
         }
 
         if (schemaName != null)
@@ -631,8 +633,8 @@ public class DebeziumRowValueConverter
         if (valueNode == null || valueNode.isNull())
         {
             return SinkProto.ColumnValue.newBuilder()
-                    // .setName(fieldName)
-                    .setValue(ByteString.EMPTY);
+                    .setValue(ByteString.EMPTY)
+                    .setIsNull(true);
         }
 
         SinkProto.ColumnValue.Builder columnValueBuilder = SinkProto.ColumnValue.newBuilder();
@@ -743,7 +745,8 @@ public class DebeziumRowValueConverter
         if (raw == null)
         {
             return SinkProto.ColumnValue.newBuilder()
-                    .setValue(ByteString.EMPTY);
+                    .setValue(ByteString.EMPTY)
+                    .setIsNull(true);
         }
         if (raw instanceof JsonNode jsonNode)
         {
